@@ -1,0 +1,584 @@
+//@version=6
+
+indicator("Auto Entry SL Target v19", overlay=true, max_lines_count=100, max_labels_count=100, dynamic_requests=true)
+
+enum Direction
+    BUY
+    SELL
+
+tradeTime = input.string("700", "Candle Time")
+
+direction = input.enum(Direction.BUY, "Direction")
+
+setupTf = input.string(
+     "15",
+     "Setup Timeframe",
+     options=["1", "3", "5", "15"]
+     )
+
+setupDay = input.int(24, "Day", minval=1, maxval=31, inline="date")
+setupMonth = input.int(9, "Month", minval=1, maxval=12, inline="date")
+setupYear = input.int(2026, "Year", minval=1970, maxval=2100, inline="date")
+
+string timezone = "Asia/Kolkata"
+
+timeText = str.replace_all(tradeTime, ":", "")
+timeValue = int(str.tonumber(timeText))
+
+int hourInput = 0
+int minuteInput = 0
+
+if str.length(timeText) <= 2
+    hourInput := timeValue
+    minuteInput := 0
+else
+    hourInput := int(timeValue / 100)
+    minuteInput := timeValue % 100
+
+setupTimestamp = timestamp(
+     timezone,
+     setupYear,
+     setupMonth,
+     setupDay,
+     hourInput,
+     minuteInput
+     )
+
+
+//=========================================================
+// FIND SETUP CANDLE
+//=========================================================
+
+findSetup(_targetTime) =>
+    bool found = time == _targetTime
+    float setupHigh = found ? high : na
+    float setupLow = found ? low : na
+    int setupTime = found ? time : na
+
+    [found, setupHigh, setupLow, setupTime]
+
+[setupFoundRaw, setupHighRaw, setupLowRaw, setupTimeRaw] = request.security(syminfo.tickerid, setupTf, findSetup(setupTimestamp), lookahead=barmerge.lookahead_off)
+
+
+//=========================================================
+// SAVE SETUP
+//=========================================================
+
+var float finalSetupHigh = na
+var float finalSetupLow = na
+var int finalSetupTime = na
+var bool setupSaved = false
+
+if setupFoundRaw and not setupSaved
+    finalSetupHigh := setupHighRaw
+    finalSetupLow := setupLowRaw
+    finalSetupTime := setupTimeRaw
+    setupSaved := true
+
+
+//=========================================================
+// LEVEL VARIABLES
+//=========================================================
+
+var float entryPrice = na
+var float slPrice = na
+var float targetPrice = na
+var float target2Price = na
+var float candleRange = na
+
+var bool levelsDrawn = false
+var int levelsStartBar = na
+
+
+//=========================================================
+// LINE VARIABLES
+//=========================================================
+
+var line entryLine = na
+var line slLine = na
+var line target1Line = na
+var line target2Line = na
+var line purpleLine = na
+
+
+//=========================================================
+// CALCULATE & DRAW LEVELS
+//=========================================================
+
+if setupSaved and not levelsDrawn
+
+    candleRange := finalSetupHigh - finalSetupLow
+
+    if direction == Direction.BUY
+
+        entryPrice := finalSetupHigh
+        slPrice := finalSetupLow
+
+        targetPrice := finalSetupHigh + candleRange
+        target2Price := finalSetupHigh + candleRange * 2
+
+    else
+
+        entryPrice := finalSetupLow
+        slPrice := finalSetupHigh
+
+        targetPrice := finalSetupLow - candleRange
+        target2Price := finalSetupLow - candleRange * 2
+
+    levelsStartBar := bar_index
+
+    entryLine := line.new(
+         x1=levelsStartBar,
+         y1=entryPrice,
+         x2=levelsStartBar + 1,
+         y2=entryPrice,
+         color=color.blue,
+         width=2,
+         style=line.style_solid,
+         extend=extend.right
+         )
+
+    slLine := line.new(
+         x1=levelsStartBar,
+         y1=slPrice,
+         x2=levelsStartBar + 1,
+         y2=slPrice,
+         color=color.red,
+         width=2,
+         style=line.style_dashed,
+         extend=extend.right
+         )
+
+    target1Line := line.new(
+         x1=levelsStartBar,
+         y1=targetPrice,
+         x2=levelsStartBar + 1,
+         y2=targetPrice,
+         color=color.green,
+         width=2,
+         style=line.style_dashed,
+         extend=extend.right
+         )
+
+    target2Line := line.new(
+         x1=levelsStartBar,
+         y1=target2Price,
+         x2=levelsStartBar + 1,
+         y2=target2Price,
+         color=color.orange,
+         width=2,
+         style=line.style_dashed,
+         extend=extend.right
+         )
+
+    label.new(
+         x=levelsStartBar,
+         y=finalSetupHigh,
+         text=str.tostring(candleRange, "#.##"),
+         style=label.style_none,
+         textcolor=color.black,
+         size=size.small
+         )
+
+    levelsDrawn := true
+
+
+//=========================================================
+// VALID BREAKOUT PRICE
+//=========================================================
+
+isValidBreakoutPrice(_entry, _target, _price, _direction) =>
+
+    bool valid = false
+
+    if _direction == Direction.BUY
+        valid := _price > _entry and _price <= _target
+    else
+        valid := _price < _entry and _price >= _target
+
+    valid
+
+
+//=========================================================
+// DIRECT BREAKOUT
+//=========================================================
+
+directBreakout(_entry, _target, _setupTime, _direction) =>
+
+    var bool done = false
+    var int resultTime = na
+    var float resultPrice = na
+
+    if not na(_setupTime) and time > _setupTime and not done
+
+        bool valid = isValidBreakoutPrice(
+             _entry,
+             _target,
+             close,
+             _direction
+             )
+
+        if valid and barstate.isconfirmed
+            resultTime := time_close
+            resultPrice := close
+            done := true
+
+    [resultTime, resultPrice]
+
+
+//=========================================================
+// TWO STEP CONFIRMATION
+//
+// 1M and 3M
+//
+// First candle:
+// Close beyond Entry
+//
+// Second candle:
+// Close beyond first candle close
+//=========================================================
+
+confirmTwoStep(_entry, _target, _setupTime, _direction) =>
+
+    var float firstPrice = na
+    var bool firstFound = false
+    var bool done = false
+
+    var int resultTime = na
+    var float resultPrice = na
+
+    if not na(_setupTime) and time > _setupTime and not done
+
+        if _direction == Direction.BUY
+
+            bool firstBreak = close > _entry and close <= _target
+            bool secondBreak = firstFound and close > firstPrice and close <= _target
+
+            if not firstFound and firstBreak
+
+                firstFound := true
+                firstPrice := close
+
+            else if secondBreak and barstate.isconfirmed
+
+                resultTime := time_close
+                resultPrice := close
+                done := true
+
+        else
+
+            bool firstBreak = close < _entry and close >= _target
+            bool secondBreak = firstFound and close < firstPrice and close >= _target
+
+            if not firstFound and firstBreak
+
+                firstFound := true
+                firstPrice := close
+
+            else if secondBreak and barstate.isconfirmed
+
+                resultTime := time_close
+                resultPrice := close
+                done := true
+
+    [resultTime, resultPrice]
+
+
+//=========================================================
+// PURPLE CONFIRMATION VARIABLES
+//=========================================================
+
+int confirmTimeA = na
+float confirmPriceA = na
+
+int confirmTimeB = na
+float confirmPriceB = na
+
+int confirmTimeC = na
+float confirmPriceC = na
+
+
+//=========================================================
+// 3M SETUP - PURPLE
+//
+// 3M SINGLE
+//=========================================================
+
+if setupSaved and levelsDrawn and setupTf == "3"
+
+    [threeTime, threePrice] = request.security(
+         syminfo.tickerid,
+         "3",
+         directBreakout(
+             entryPrice,
+             targetPrice,
+             finalSetupTime,
+             direction
+             ),
+         lookahead=barmerge.lookahead_off
+         )
+
+    confirmTimeA := threeTime
+    confirmPriceA := threePrice
+
+    confirmTimeB := na
+    confirmPriceB := na
+
+    confirmTimeC := na
+    confirmPriceC := na
+
+
+//=========================================================
+// 5M SETUP - PURPLE
+//
+// 1M x 2
+// OR
+// 3M x 2
+// OR
+// 5M SINGLE
+//=========================================================
+
+if setupSaved and levelsDrawn and setupTf == "5"
+
+    // 1M x 2
+    [oneTime, onePrice] = request.security(
+         syminfo.tickerid,
+         "1",
+         confirmTwoStep(
+             entryPrice,
+             targetPrice,
+             finalSetupTime,
+             direction
+             ),
+         lookahead=barmerge.lookahead_off
+         )
+
+    // 3M x 2
+    [threeTime, threePrice] = request.security(
+         syminfo.tickerid,
+         "3",
+         confirmTwoStep(
+             entryPrice,
+             targetPrice,
+             finalSetupTime,
+             direction
+             ),
+         lookahead=barmerge.lookahead_off
+         )
+
+    // 5M single
+    [fiveTime, fivePrice] = request.security(
+         syminfo.tickerid,
+         "5",
+         directBreakout(
+             entryPrice,
+             targetPrice,
+             finalSetupTime,
+             direction
+             ),
+         lookahead=barmerge.lookahead_off
+         )
+
+    confirmTimeA := oneTime
+    confirmPriceA := onePrice
+
+    confirmTimeB := threeTime
+    confirmPriceB := threePrice
+
+    confirmTimeC := fiveTime
+    confirmPriceC := fivePrice
+
+
+//=========================================================
+// 15M SETUP - PURPLE
+//
+// 5M SINGLE OR 15M SINGLE
+//=========================================================
+
+if setupSaved and levelsDrawn and setupTf == "15"
+
+    [fiveTime15, fivePrice15] = request.security(
+         syminfo.tickerid,
+         "5",
+         directBreakout(
+             entryPrice,
+             targetPrice,
+             finalSetupTime,
+             direction
+             ),
+         lookahead=barmerge.lookahead_off
+         )
+
+    [fifteenTime, fifteenPrice] = request.security(
+         syminfo.tickerid,
+         "15",
+         directBreakout(
+             entryPrice,
+             targetPrice,
+             finalSetupTime,
+             direction
+             ),
+         lookahead=barmerge.lookahead_off
+         )
+
+    bool valid5m = false
+
+    if not na(fiveTime15) and not na(fivePrice15)
+
+        valid5m := fiveTime15 > finalSetupTime and isValidBreakoutPrice(
+             entryPrice,
+             targetPrice,
+             fivePrice15,
+             direction
+             )
+
+    if valid5m
+
+        confirmTimeA := fiveTime15
+        confirmPriceA := fivePrice15
+
+        confirmTimeB := na
+        confirmPriceB := na
+
+        confirmTimeC := na
+        confirmPriceC := na
+
+    else
+
+        bool valid15m = false
+
+        if not na(fifteenTime) and not na(fifteenPrice)
+
+            valid15m := fifteenTime > finalSetupTime and isValidBreakoutPrice(
+                 entryPrice,
+                 targetPrice,
+                 fifteenPrice,
+                 direction
+                 )
+
+        if valid15m
+
+            confirmTimeA := fifteenTime
+            confirmPriceA := fifteenPrice
+
+        else
+
+            confirmTimeA := na
+            confirmPriceA := na
+
+        confirmTimeB := na
+        confirmPriceB := na
+
+        confirmTimeC := na
+        confirmPriceC := na
+
+
+//=========================================================
+// SELECT PURPLE CONFIRMATION
+//=========================================================
+
+selectConfirmation(
+     _timeA,
+     _priceA,
+     _timeB,
+     _priceB,
+     _timeC,
+     _priceC,
+     _entry,
+     _target,
+     _setupTime,
+     _direction
+     ) =>
+
+    bool validA = false
+    bool validB = false
+    bool validC = false
+
+    if not na(_timeA) and not na(_priceA)
+
+        validA := _timeA > _setupTime and isValidBreakoutPrice(
+             _entry,
+             _target,
+             _priceA,
+             _direction
+             )
+
+    if not na(_timeB) and not na(_priceB)
+
+        validB := _timeB > _setupTime and isValidBreakoutPrice(
+             _entry,
+             _target,
+             _priceB,
+             _direction
+             )
+
+    if not na(_timeC) and not na(_priceC)
+
+        validC := _timeC > _setupTime and isValidBreakoutPrice(
+             _entry,
+             _target,
+             _priceC,
+             _direction
+             )
+
+    int selectedTime = na
+    float selectedPrice = na
+
+    if validA
+
+        selectedTime := _timeA
+        selectedPrice := _priceA
+
+    if validB and (na(selectedTime) or _timeB < selectedTime)
+
+        selectedTime := _timeB
+        selectedPrice := _priceB
+
+    if validC and (na(selectedTime) or _timeC < selectedTime)
+
+        selectedTime := _timeC
+        selectedPrice := _priceC
+
+    [selectedTime, selectedPrice]
+
+
+//=========================================================
+// PURPLE LINE
+//=========================================================
+
+var bool breakoutDone = false
+var int lockedConfirmTime = na
+var float lockedConfirmPrice = na
+
+if setupSaved and levelsDrawn and not breakoutDone
+
+    [selectedTime, selectedPrice] = selectConfirmation(
+         confirmTimeA,
+         confirmPriceA,
+         confirmTimeB,
+         confirmPriceB,
+         confirmTimeC,
+         confirmPriceC,
+         entryPrice,
+         targetPrice,
+         finalSetupTime,
+         direction
+         )
+
+    if not na(selectedTime) and not na(selectedPrice)
+
+        lockedConfirmTime := selectedTime
+        lockedConfirmPrice := selectedPrice
+
+        purpleLine := line.new(
+             x1=levelsStartBar,
+             y1=lockedConfirmPrice,
+             x2=levelsStartBar + 1,
+             y2=lockedConfirmPrice,
+             color=color.purple,
+             width=2,
+             style=line.style_solid,
+             extend=extend.right
+             )
+
+        breakoutDone := true
