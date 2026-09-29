@@ -1,6 +1,6 @@
 //@version=6
 
-indicator("Auto Entry SL Target v19", overlay=true, max_lines_count=100, max_labels_count=100, dynamic_requests=true)
+indicator("Auto Entry SL Target v32", overlay=true, max_lines_count=100, max_labels_count=100, dynamic_requests=true)
 
 enum Direction
     BUY
@@ -13,11 +13,11 @@ direction = input.enum(Direction.BUY, "Direction")
 setupTf = input.string(
      "15",
      "Setup Timeframe",
-     options=["1", "3", "5", "15"]
+     options=["1", "5", "15"]
      )
 
 setupDate = input.time(
-    timestamp("2026-09-27 00:00 +0530"),
+    timestamp("2026-09-29 00:00 +0530"),
     "Setup Date"
     )
 
@@ -38,9 +38,9 @@ else
 
 setupTimestamp = timestamp(
      timezone,
-    year(setupDate, timezone),
-    month(setupDate, timezone),
-    dayofmonth(setupDate, timezone),
+     year(setupDate, timezone),
+     month(setupDate, timezone),
+     dayofmonth(setupDate, timezone),
      hourInput,
      minuteInput
      )
@@ -100,6 +100,7 @@ var line slLine = na
 var line target1Line = na
 var line target2Line = na
 var line purpleLine = na
+var line yellowLine = na
 
 
 //=========================================================
@@ -198,6 +199,9 @@ if setupSaved and levelsDrawn
         if high >= target2Price and not na(target2Line)
             line.set_style(target2Line, line.style_solid)
 
+        if barstate.isconfirmed and close <= slPrice and not na(slLine)
+            line.set_style(slLine, line.style_solid)
+
     else
 
         if low <= targetPrice and not na(target1Line)
@@ -205,6 +209,9 @@ if setupSaved and levelsDrawn
 
         if low <= target2Price and not na(target2Line)
             line.set_style(target2Line, line.style_solid)
+
+        if barstate.isconfirmed and close >= slPrice and not na(slLine)
+            line.set_style(slLine, line.style_solid)
 
 
 //=========================================================
@@ -309,6 +316,64 @@ confirmTwoStep(_entry, _target, _setupTime, _direction) =>
 
 
 //=========================================================
+// 1M STRONG CANDLE CONFIRMATION (YELLOW)
+//=========================================================
+
+strong1mConfirmation(_entry, _target, _setupTime, _direction) =>
+
+    var bool done = false
+    var int resultTime = na
+    var float resultPrice = na
+
+    if not na(_setupTime) and time > _setupTime and not done
+
+        float candleRangeSize = high - low
+        float body = math.abs(close - open)
+        float bodyRatio = candleRangeSize > 0 ? (body / candleRangeSize) * 100 : 0
+        float upperWick = high - math.max(open, close)
+        float lowerWick = math.min(open, close) - low
+        float upperWickRatio = candleRangeSize > 0 ? (upperWick / candleRangeSize) * 100 : 0
+        float lowerWickRatio = candleRangeSize > 0 ? (lowerWick / candleRangeSize) * 100 : 0
+        float closeLocation = candleRangeSize > 0 ? ((close - low) / candleRangeSize) * 100 : 0
+        float prevRange = high[1] - low[1]
+        float prevBody = math.abs(close[1] - open[1])
+        float prevBodyRatio = prevRange > 0 ? (prevBody / prevRange) * 100 : 0
+
+        bool strong = false
+
+        if _direction == Direction.BUY
+            strong :=
+                 close > open and
+                 close > _entry and
+                 close <= _target and
+                 bodyRatio >= 65 and
+                 closeLocation >= 75 and
+                 upperWickRatio <= 25 and
+                 (na(prevBody) or body > prevBody * 1.2) and
+                 (na(prevBodyRatio) or bodyRatio > prevBodyRatio)
+        else
+            strong :=
+                 close < open and
+                 close < _entry and
+                 close >= _target and
+                 bodyRatio >= 65 and
+                 closeLocation <= 25 and
+                 lowerWickRatio <= 25 and
+                 (na(prevBody) or body > prevBody * 1.2) and
+                 (na(prevBodyRatio) or bodyRatio > prevBodyRatio)
+
+        if strong and barstate.isconfirmed
+            resultTime := time_close
+            resultPrice := close
+            done := true
+
+    [resultTime, resultPrice]
+
+
+int yellowConfirmTime = na
+float yellowConfirmPrice = na
+
+//=========================================================
 // PURPLE CONFIRMATION VARIABLES
 //=========================================================
 
@@ -322,18 +387,11 @@ int confirmTimeC = na
 float confirmPriceC = na
 
 
-//=========================================================
-// 3M SETUP - PURPLE
-//
-// 3M SINGLE
-//=========================================================
-
-if setupSaved and levelsDrawn and setupTf == "3"
-
-    [threeTime, threePrice] = request.security(
+if setupSaved and levelsDrawn and barstate.isconfirmed
+    [oneMinConfirmTime, oneMinConfirmPrice] = request.security(
          syminfo.tickerid,
-         "3",
-         directBreakout(
+         "1",
+         strong1mConfirmation(
              entryPrice,
              targetPrice,
              finalSetupTime,
@@ -342,22 +400,22 @@ if setupSaved and levelsDrawn and setupTf == "3"
          lookahead=barmerge.lookahead_off
          )
 
-    confirmTimeA := threeTime
-    confirmPriceA := threePrice
+    yellowConfirmTime := oneMinConfirmTime
+    yellowConfirmPrice := oneMinConfirmPrice
 
-    confirmTimeB := na
-    confirmPriceB := na
+else if setupSaved and levelsDrawn and not barstate.isconfirmed
+    yellowConfirmTime := na
+    yellowConfirmPrice := na
 
-    confirmTimeC := na
-    confirmPriceC := na
+if setupSaved and levelsDrawn and not barstate.isconfirmed
+    yellowConfirmTime := na
+    yellowConfirmPrice := na
 
 
 //=========================================================
 // 5M SETUP - PURPLE
 //
 // 1M x 2
-// OR
-// 3M x 2
 // OR
 // 5M SINGLE
 //=========================================================
@@ -368,19 +426,6 @@ if setupSaved and levelsDrawn and setupTf == "5"
     [oneTime, onePrice] = request.security(
          syminfo.tickerid,
          "1",
-         confirmTwoStep(
-             entryPrice,
-             targetPrice,
-             finalSetupTime,
-             direction
-             ),
-         lookahead=barmerge.lookahead_off
-         )
-
-    // 3M x 2
-    [threeTime, threePrice] = request.security(
-         syminfo.tickerid,
-         "3",
          confirmTwoStep(
              entryPrice,
              targetPrice,
@@ -406,8 +451,8 @@ if setupSaved and levelsDrawn and setupTf == "5"
     confirmTimeA := oneTime
     confirmPriceA := onePrice
 
-    confirmTimeB := threeTime
-    confirmPriceB := threePrice
+    confirmTimeB := na
+    confirmPriceB := na
 
     confirmTimeC := fiveTime
     confirmPriceC := fivePrice
@@ -606,3 +651,21 @@ if setupSaved and levelsDrawn and not breakoutDone
              )
 
         breakoutDone := true
+
+
+//=========================================================
+// YELLOW STRONG CANDLE CONFIRMATION LINE
+//=========================================================
+
+if setupSaved and levelsDrawn and barstate.isconfirmed and not na(yellowConfirmTime) and not na(yellowConfirmPrice) and yellowConfirmTime > finalSetupTime and na(yellowLine)
+
+    yellowLine := line.new(
+         x1=levelsStartBar,
+         y1=yellowConfirmPrice,
+         x2=levelsStartBar + 1,
+         y2=yellowConfirmPrice,
+         color=color.yellow,
+         width=4,
+         style=line.style_solid,
+         extend=extend.right
+         )
