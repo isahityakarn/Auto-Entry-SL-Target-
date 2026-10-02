@@ -1,6 +1,6 @@
 //@version=6
 
-indicator("Auto Entry SL Target v32", overlay=true, max_lines_count=100, max_labels_count=100, dynamic_requests=true)
+indicator("Auto Entry SL Target v35", overlay=true, max_lines_count=100, max_labels_count=100, dynamic_requests=true)
 
 enum Direction
     BUY
@@ -11,13 +11,13 @@ tradeTime = input.string("700", "Candle Time")
 direction = input.enum(Direction.BUY, "Direction")
 
 setupTf = input.string(
-     "15",
+     "5",
      "Setup Timeframe",
-     options=["1", "5", "15"]
+     options=["1", "5", "30"]
      )
 
 setupDate = input.time(
-    timestamp("2026-09-29 00:00 +0530"),
+    timestamp("2026-10-02 00:00 +0530"),
     "Setup Date"
     )
 
@@ -76,6 +76,8 @@ if setupFoundRaw and not setupSaved
     finalSetupTime := setupTimeRaw
     setupSaved := true
 
+int setupEndTime = finalSetupTime + timeframe.in_seconds(setupTf) * 1000
+
 
 //=========================================================
 // LEVEL VARIABLES
@@ -89,6 +91,7 @@ var float candleRange = na
 
 var bool levelsDrawn = false
 var int levelsStartBar = na
+var bool slLocked = false
 
 
 //=========================================================
@@ -135,7 +138,7 @@ if setupSaved and not levelsDrawn
          x2=levelsStartBar + 1,
          y2=entryPrice,
          color=color.blue,
-         width=2,
+         width=3,
          style=line.style_solid,
          extend=extend.right
          )
@@ -146,7 +149,7 @@ if setupSaved and not levelsDrawn
          x2=levelsStartBar + 1,
          y2=slPrice,
          color=color.red,
-         width=2,
+         width=3,
          style=line.style_dashed,
          extend=extend.right
          )
@@ -157,7 +160,7 @@ if setupSaved and not levelsDrawn
          x2=levelsStartBar + 1,
          y2=targetPrice,
          color=color.green,
-         width=2,
+         width=3,
          style=line.style_dashed,
          extend=extend.right
          )
@@ -168,7 +171,7 @@ if setupSaved and not levelsDrawn
          x2=levelsStartBar + 1,
          y2=target2Price,
          color=color.orange,
-         width=2,
+         width=3,
          style=line.style_dashed,
          extend=extend.right
          )
@@ -186,10 +189,48 @@ if setupSaved and not levelsDrawn
 
 
 //=========================================================
+// CHECK STOP LOSS ON 1M AND CURRENT TIMEFRAME
+//=========================================================
+
+slStopCheck(_setupEndTime, _slPrice, _direction) =>
+    var bool done = false
+    var int resultTime = na
+
+    if not na(_setupEndTime) and time >= _setupEndTime and not done
+
+        if _direction == Direction.BUY
+            if barstate.isconfirmed and close <= _slPrice
+                resultTime := time_close
+                done := true
+        else
+            if barstate.isconfirmed and close >= _slPrice
+                resultTime := time_close
+                done := true
+
+    [resultTime]
+
+
+//=========================================================
 // TARGET TOUCH: DOTTED TO SOLID
 //=========================================================
 
-if setupSaved and levelsDrawn
+if setupSaved and levelsDrawn and not slLocked
+
+    [sl1mTime] = request.security(
+         syminfo.tickerid,
+         "1",
+         slStopCheck(
+             setupEndTime,
+             slPrice,
+             direction
+             ),
+         lookahead=barmerge.lookahead_off
+         )
+
+    if not na(sl1mTime) and not na(slLine)
+        line.set_style(slLine, line.style_solid)
+        line.set_width(slLine, 3)
+        slLocked := true
 
     if direction == Direction.BUY
 
@@ -199,9 +240,6 @@ if setupSaved and levelsDrawn
         if high >= target2Price and not na(target2Line)
             line.set_style(target2Line, line.style_solid)
 
-        if barstate.isconfirmed and close <= slPrice and not na(slLine)
-            line.set_style(slLine, line.style_solid)
-
     else
 
         if low <= targetPrice and not na(target1Line)
@@ -209,9 +247,6 @@ if setupSaved and levelsDrawn
 
         if low <= target2Price and not na(target2Line)
             line.set_style(target2Line, line.style_solid)
-
-        if barstate.isconfirmed and close >= slPrice and not na(slLine)
-            line.set_style(slLine, line.style_solid)
 
 
 //=========================================================
@@ -319,13 +354,13 @@ confirmTwoStep(_entry, _target, _setupTime, _direction) =>
 // 1M STRONG CANDLE CONFIRMATION (YELLOW)
 //=========================================================
 
-strong1mConfirmation(_entry, _target, _setupTime, _direction) =>
+strong1mConfirmation(_entry, _target, _setupEndTime, _direction) =>
 
     var bool done = false
     var int resultTime = na
     var float resultPrice = na
 
-    if not na(_setupTime) and time > _setupTime and not done
+    if not na(_setupEndTime) and time >= _setupEndTime and not done
 
         float candleRangeSize = high - low
         float body = math.abs(close - open)
@@ -387,29 +422,25 @@ int confirmTimeC = na
 float confirmPriceC = na
 
 
-if setupSaved and levelsDrawn and barstate.isconfirmed
+if setupSaved and levelsDrawn
     [oneMinConfirmTime, oneMinConfirmPrice] = request.security(
          syminfo.tickerid,
          "1",
          strong1mConfirmation(
              entryPrice,
              targetPrice,
-             finalSetupTime,
+             setupEndTime,
              direction
              ),
          lookahead=barmerge.lookahead_off
          )
 
-    yellowConfirmTime := oneMinConfirmTime
-    yellowConfirmPrice := oneMinConfirmPrice
-
-else if setupSaved and levelsDrawn and not barstate.isconfirmed
-    yellowConfirmTime := na
-    yellowConfirmPrice := na
-
-if setupSaved and levelsDrawn and not barstate.isconfirmed
-    yellowConfirmTime := na
-    yellowConfirmPrice := na
+    if not na(oneMinConfirmTime) and not na(oneMinConfirmPrice) and oneMinConfirmTime >= setupEndTime
+        yellowConfirmTime := oneMinConfirmTime
+        yellowConfirmPrice := oneMinConfirmPrice
+    else
+        yellowConfirmTime := na
+        yellowConfirmPrice := na
 
 
 //=========================================================
@@ -459,14 +490,14 @@ if setupSaved and levelsDrawn and setupTf == "5"
 
 
 //=========================================================
-// 15M SETUP - PURPLE
+// 30M SETUP - PURPLE
 //
-// 5M SINGLE OR 15M SINGLE
+// 5M SINGLE OR 30M SINGLE
 //=========================================================
 
-if setupSaved and levelsDrawn and setupTf == "15"
+if setupSaved and levelsDrawn and setupTf == "30"
 
-    [fiveTime15, fivePrice15] = request.security(
+    [fiveTime30, fivePrice30] = request.security(
          syminfo.tickerid,
          "5",
          directBreakout(
@@ -478,9 +509,9 @@ if setupSaved and levelsDrawn and setupTf == "15"
          lookahead=barmerge.lookahead_off
          )
 
-    [fifteenTime, fifteenPrice] = request.security(
+    [thirtyTime, thirtyPrice] = request.security(
          syminfo.tickerid,
-         "15",
+         "30",
          directBreakout(
              entryPrice,
              targetPrice,
@@ -492,19 +523,19 @@ if setupSaved and levelsDrawn and setupTf == "15"
 
     bool valid5m = false
 
-    if not na(fiveTime15) and not na(fivePrice15)
+    if not na(fiveTime30) and not na(fivePrice30)
 
-        valid5m := fiveTime15 > finalSetupTime and isValidBreakoutPrice(
+        valid5m := fiveTime30 > finalSetupTime and isValidBreakoutPrice(
              entryPrice,
              targetPrice,
-             fivePrice15,
+             fivePrice30,
              direction
              )
 
     if valid5m
 
-        confirmTimeA := fiveTime15
-        confirmPriceA := fivePrice15
+        confirmTimeA := fiveTime30
+        confirmPriceA := fivePrice30
 
         confirmTimeB := na
         confirmPriceB := na
@@ -514,21 +545,21 @@ if setupSaved and levelsDrawn and setupTf == "15"
 
     else
 
-        bool valid15m = false
+        bool valid30m = false
 
-        if not na(fifteenTime) and not na(fifteenPrice)
+        if not na(thirtyTime) and not na(thirtyPrice)
 
-            valid15m := fifteenTime > finalSetupTime and isValidBreakoutPrice(
+            valid30m := thirtyTime > finalSetupTime and isValidBreakoutPrice(
                  entryPrice,
                  targetPrice,
-                 fifteenPrice,
+                 thirtyPrice,
                  direction
                  )
 
-        if valid15m
+        if valid30m
 
-            confirmTimeA := fifteenTime
-            confirmPriceA := fifteenPrice
+            confirmTimeA := thirtyTime
+            confirmPriceA := thirtyPrice
 
         else
 
@@ -555,7 +586,7 @@ selectConfirmation(
      _priceC,
      _entry,
      _target,
-     _setupTime,
+    _setupTime,
      _direction
      ) =>
 
@@ -645,7 +676,7 @@ if setupSaved and levelsDrawn and not breakoutDone
              x2=levelsStartBar + 1,
              y2=lockedConfirmPrice,
              color=color.purple,
-             width=2,
+             width=3,
              style=line.style_solid,
              extend=extend.right
              )
@@ -657,7 +688,7 @@ if setupSaved and levelsDrawn and not breakoutDone
 // YELLOW STRONG CANDLE CONFIRMATION LINE
 //=========================================================
 
-if setupSaved and levelsDrawn and barstate.isconfirmed and not na(yellowConfirmTime) and not na(yellowConfirmPrice) and yellowConfirmTime > finalSetupTime and na(yellowLine)
+if setupSaved and levelsDrawn and not na(yellowConfirmTime) and not na(yellowConfirmPrice) and yellowConfirmTime >= setupEndTime and na(yellowLine)
 
     yellowLine := line.new(
          x1=levelsStartBar,
@@ -665,7 +696,7 @@ if setupSaved and levelsDrawn and barstate.isconfirmed and not na(yellowConfirmT
          x2=levelsStartBar + 1,
          y2=yellowConfirmPrice,
          color=color.yellow,
-         width=4,
+         width=5,
          style=line.style_solid,
          extend=extend.right
          )
