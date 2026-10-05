@@ -236,17 +236,21 @@ if setupSaved and levelsDrawn and not slLocked
 
         if high >= targetPrice and not na(target1Line)
             line.set_style(target1Line, line.style_solid)
+            line.set_width(target1Line, 3)
 
         if high >= target2Price and not na(target2Line)
             line.set_style(target2Line, line.style_solid)
+            line.set_width(target2Line, 3)
 
     else
 
         if low <= targetPrice and not na(target1Line)
             line.set_style(target1Line, line.style_solid)
+            line.set_width(target1Line, 3)
 
         if low <= target2Price and not na(target2Line)
             line.set_style(target2Line, line.style_solid)
+            line.set_width(target2Line, 3)
 
 
 //=========================================================
@@ -365,14 +369,8 @@ strong1mConfirmation(_entry, _target, _setupEndTime, _direction) =>
         float candleRangeSize = high - low
         float body = math.abs(close - open)
         float bodyRatio = candleRangeSize > 0 ? (body / candleRangeSize) * 100 : 0
-        float upperWick = high - math.max(open, close)
-        float lowerWick = math.min(open, close) - low
-        float upperWickRatio = candleRangeSize > 0 ? (upperWick / candleRangeSize) * 100 : 0
-        float lowerWickRatio = candleRangeSize > 0 ? (lowerWick / candleRangeSize) * 100 : 0
-        float closeLocation = candleRangeSize > 0 ? ((close - low) / candleRangeSize) * 100 : 0
         float prevRange = high[1] - low[1]
         float prevBody = math.abs(close[1] - open[1])
-        float prevBodyRatio = prevRange > 0 ? (prevBody / prevRange) * 100 : 0
 
         bool strong = false
 
@@ -381,21 +379,15 @@ strong1mConfirmation(_entry, _target, _setupEndTime, _direction) =>
                  close > open and
                  close > _entry and
                  close <= _target and
-                 bodyRatio >= 65 and
-                 closeLocation >= 75 and
-                 upperWickRatio <= 25 and
-                 (na(prevBody) or body > prevBody * 1.2) and
-                 (na(prevBodyRatio) or bodyRatio > prevBodyRatio)
+                 bodyRatio >= 50 and
+                 (na(prevBody) or body >= prevBody * 0.8)
         else
             strong :=
                  close < open and
                  close < _entry and
                  close >= _target and
-                 bodyRatio >= 65 and
-                 closeLocation <= 25 and
-                 lowerWickRatio <= 25 and
-                 (na(prevBody) or body > prevBody * 1.2) and
-                 (na(prevBodyRatio) or bodyRatio > prevBodyRatio)
+                 bodyRatio >= 50 and
+                 (na(prevBody) or body >= prevBody * 0.8)
 
         if strong and barstate.isconfirmed
             resultTime := time_close
@@ -696,7 +688,7 @@ if setupSaved and levelsDrawn and not na(yellowConfirmTime) and not na(yellowCon
          x2=levelsStartBar + 1,
          y2=yellowConfirmPrice,
          color=color.yellow,
-         width=5,
+         width=2,
          style=line.style_solid,
          extend=extend.right
          )
