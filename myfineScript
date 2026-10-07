@@ -1,6 +1,6 @@
 //@version=6
 
-indicator("Auto Entry SL Target v35", overlay=true, max_lines_count=100, max_labels_count=100, dynamic_requests=true)
+indicator("Auto Entry SL Target v43", overlay=true, max_lines_count=100, max_labels_count=100, dynamic_requests=true)
 
 enum Direction
     BUY
@@ -17,7 +17,7 @@ setupTf = input.string(
      )
 
 setupDate = input.time(
-    timestamp("2026-10-02 00:00 +0530"),
+    timestamp("2026-10-07 00:00 +0530"),
     "Setup Date"
     )
 
@@ -91,7 +91,10 @@ var float candleRange = na
 
 var bool levelsDrawn = false
 var int levelsStartBar = na
+var int levelsStartTime = na
 var bool slLocked = false
+var bool target1Touched = false
+var bool target2Touched = false
 
 
 //=========================================================
@@ -131,49 +134,54 @@ if setupSaved and not levelsDrawn
         target2Price := finalSetupLow - candleRange * 2
 
     levelsStartBar := bar_index
+    levelsStartTime := time
 
     entryLine := line.new(
-         x1=levelsStartBar,
+            x1=levelsStartTime,
          y1=entryPrice,
-         x2=levelsStartBar + 1,
+            x2=levelsStartTime + 50 * 60 * 1000,
          y2=entryPrice,
+            xloc=xloc.bar_time,
          color=color.blue,
          width=3,
          style=line.style_solid,
-         extend=extend.right
+            extend=extend.none
          )
 
     slLine := line.new(
-         x1=levelsStartBar,
+            x1=levelsStartTime,
          y1=slPrice,
-         x2=levelsStartBar + 1,
+            x2=levelsStartTime + 50 * 60 * 1000,
          y2=slPrice,
+            xloc=xloc.bar_time,
          color=color.red,
          width=3,
          style=line.style_dashed,
-         extend=extend.right
+            extend=extend.none
          )
 
     target1Line := line.new(
-         x1=levelsStartBar,
+            x1=levelsStartTime,
          y1=targetPrice,
-         x2=levelsStartBar + 1,
+            x2=levelsStartTime + 50 * 60 * 1000,
          y2=targetPrice,
+            xloc=xloc.bar_time,
          color=color.green,
          width=3,
          style=line.style_dashed,
-         extend=extend.right
+            extend=extend.none
          )
 
     target2Line := line.new(
-         x1=levelsStartBar,
+            x1=levelsStartTime,
          y1=target2Price,
-         x2=levelsStartBar + 1,
+            x2=levelsStartTime + 50 * 60 * 1000,
          y2=target2Price,
+            xloc=xloc.bar_time,
          color=color.orange,
          width=3,
          style=line.style_dashed,
-         extend=extend.right
+            extend=extend.none
          )
 
     label.new(
@@ -214,43 +222,48 @@ slStopCheck(_setupEndTime, _slPrice, _direction) =>
 // TARGET TOUCH: DOTTED TO SOLID
 //=========================================================
 
-if setupSaved and levelsDrawn and not slLocked
+if setupSaved and levelsDrawn
 
-    [sl1mTime] = request.security(
-         syminfo.tickerid,
-         "1",
-         slStopCheck(
-             setupEndTime,
-             slPrice,
-             direction
-             ),
-         lookahead=barmerge.lookahead_off
-         )
+    if not slLocked
+        [sl1mTime] = request.security(
+             syminfo.tickerid,
+             "1",
+             slStopCheck(
+                 setupEndTime,
+                 slPrice,
+                 direction
+                 ),
+             lookahead=barmerge.lookahead_off
+             )
 
-    if not na(sl1mTime) and not na(slLine)
-        line.set_style(slLine, line.style_solid)
-        line.set_width(slLine, 3)
-        slLocked := true
+        if not na(sl1mTime) and not na(slLine)
+            line.set_style(slLine, line.style_solid)
+            line.set_width(slLine, 3)
+            slLocked := true
 
     if direction == Direction.BUY
 
-        if high >= targetPrice and not na(target1Line)
+        if high >= targetPrice and not na(target1Line) and not target1Touched
             line.set_style(target1Line, line.style_solid)
             line.set_width(target1Line, 3)
+            target1Touched := true
 
-        if high >= target2Price and not na(target2Line)
+        if high >= target2Price and not na(target2Line) and not target2Touched
             line.set_style(target2Line, line.style_solid)
             line.set_width(target2Line, 3)
+            target2Touched := true
 
     else
 
-        if low <= targetPrice and not na(target1Line)
+        if low <= targetPrice and not na(target1Line) and not target1Touched
             line.set_style(target1Line, line.style_solid)
             line.set_width(target1Line, 3)
+            target1Touched := true
 
-        if low <= target2Price and not na(target2Line)
+        if low <= target2Price and not na(target2Line) and not target2Touched
             line.set_style(target2Line, line.style_solid)
             line.set_width(target2Line, 3)
+            target2Touched := true
 
 
 //=========================================================
@@ -663,14 +676,15 @@ if setupSaved and levelsDrawn and not breakoutDone
         lockedConfirmPrice := selectedPrice
 
         purpleLine := line.new(
-             x1=levelsStartBar,
+               x1=levelsStartTime,
              y1=lockedConfirmPrice,
-             x2=levelsStartBar + 1,
+               x2=levelsStartTime + 50 * 60 * 1000,
              y2=lockedConfirmPrice,
+               xloc=xloc.bar_time,
              color=color.purple,
              width=3,
              style=line.style_solid,
-             extend=extend.right
+               extend=extend.none
              )
 
         breakoutDone := true
@@ -683,12 +697,13 @@ if setupSaved and levelsDrawn and not breakoutDone
 if setupSaved and levelsDrawn and not na(yellowConfirmTime) and not na(yellowConfirmPrice) and yellowConfirmTime >= setupEndTime and na(yellowLine)
 
     yellowLine := line.new(
-         x1=levelsStartBar,
+            x1=levelsStartTime,
          y1=yellowConfirmPrice,
-         x2=levelsStartBar + 1,
+            x2=levelsStartTime + 50 * 60 * 1000,
          y2=yellowConfirmPrice,
+            xloc=xloc.bar_time,
          color=color.yellow,
-         width=2,
+         width=3,
          style=line.style_solid,
-         extend=extend.right
+            extend=extend.none
          )
