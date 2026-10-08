@@ -197,7 +197,7 @@ if setupSaved and not levelsDrawn
 
 
 //=========================================================
-// CHECK STOP LOSS ON 1M AND CURRENT TIMEFRAME
+// STOP LOSS HIT CHECK
 //=========================================================
 
 slStopCheck(_setupEndTime, _slPrice, _direction) =>
@@ -205,7 +205,6 @@ slStopCheck(_setupEndTime, _slPrice, _direction) =>
     var int resultTime = na
 
     if not na(_setupEndTime) and time >= _setupEndTime and not done
-
         if _direction == Direction.BUY
             if barstate.isconfirmed and close <= _slPrice
                 resultTime := time_close
@@ -368,42 +367,25 @@ confirmTwoStep(_entry, _target, _setupTime, _direction) =>
 
 
 //=========================================================
-// 1M STRONG CANDLE CONFIRMATION (YELLOW)
+// 1M ENTRY BREAKOUT CONFIRMATION (YELLOW)
 //=========================================================
 
-strong1mConfirmation(_entry, _target, _setupEndTime, _direction) =>
+oneMinuteEntryBreakout(_entry, _target, _setupEndTime, _direction) =>
 
     var bool done = false
     var int resultTime = na
     var float resultPrice = na
 
     if not na(_setupEndTime) and time >= _setupEndTime and not done
-
-        float candleRangeSize = high - low
-        float body = math.abs(close - open)
-        float bodyRatio = candleRangeSize > 0 ? (body / candleRangeSize) * 100 : 0
-        float prevRange = high[1] - low[1]
-        float prevBody = math.abs(close[1] - open[1])
-
-        bool strong = false
+        bool breakout = false
 
         if _direction == Direction.BUY
-            strong :=
-                 close > open and
-                 close > _entry and
-                 close <= _target and
-                 bodyRatio >= 50 and
-                 (na(prevBody) or body >= prevBody * 0.8)
+            breakout := close > _entry and close <= _target
         else
-            strong :=
-                 close < open and
-                 close < _entry and
-                 close >= _target and
-                 bodyRatio >= 50 and
-                 (na(prevBody) or body >= prevBody * 0.8)
+            breakout := close < _entry and close >= _target
 
-        if strong and barstate.isconfirmed
-            resultTime := time_close
+        if breakout and barstate.isconfirmed
+            resultTime := time
             resultPrice := close
             done := true
 
@@ -431,7 +413,7 @@ if setupSaved and levelsDrawn
     [oneMinConfirmTime, oneMinConfirmPrice] = request.security(
          syminfo.tickerid,
          "1",
-         strong1mConfirmation(
+         oneMinuteEntryBreakout(
              entryPrice,
              targetPrice,
              setupEndTime,
