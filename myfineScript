@@ -1,6 +1,6 @@
 //@version=6
 
-indicator("Auto Entry SL Target v43", overlay=true, max_lines_count=100, max_labels_count=100, dynamic_requests=true)
+indicator("Auto Entry SL Target v45", overlay=true, max_lines_count=100, max_labels_count=100, dynamic_requests=true)
 
 enum Direction
     BUY
@@ -17,7 +17,7 @@ setupTf = input.string(
      )
 
 setupDate = input.time(
-    timestamp("2026-10-07 00:00 +0530"),
+    timestamp("2026-10-08 00:00 +0530"),
     "Setup Date"
     )
 
@@ -77,6 +77,7 @@ if setupFoundRaw and not setupSaved
     setupSaved := true
 
 int setupEndTime = finalSetupTime + timeframe.in_seconds(setupTf) * 1000
+int levelLineDuration = setupTf == "30" ? 3 * 60 * 60 * 1000 : 50 * 60 * 1000
 
 
 //=========================================================
@@ -133,13 +134,20 @@ if setupSaved and not levelsDrawn
         targetPrice := finalSetupLow - candleRange
         target2Price := finalSetupLow - candleRange * 2
 
+    bool isNifty = str.contains(str.upper(syminfo.ticker), "NIFTY")
+    bool isNaturalGas = str.contains(str.upper(syminfo.ticker), "NATURALGAS")
+    float slRangeLimit = isNifty ? 20.0 : isNaturalGas ? 1.0 : na
+
+    if not na(slRangeLimit) and candleRange > slRangeLimit
+        slPrice := direction == Direction.BUY ? entryPrice - slRangeLimit : entryPrice + slRangeLimit
+
     levelsStartBar := bar_index
     levelsStartTime := time
 
     entryLine := line.new(
             x1=levelsStartTime,
          y1=entryPrice,
-            x2=levelsStartTime + 50 * 60 * 1000,
+            x2=levelsStartTime + levelLineDuration,
          y2=entryPrice,
             xloc=xloc.bar_time,
          color=color.blue,
@@ -151,36 +159,36 @@ if setupSaved and not levelsDrawn
     slLine := line.new(
             x1=levelsStartTime,
          y1=slPrice,
-            x2=levelsStartTime + 50 * 60 * 1000,
+            x2=levelsStartTime + levelLineDuration,
          y2=slPrice,
             xloc=xloc.bar_time,
          color=color.red,
          width=3,
-         style=line.style_dashed,
+         style=line.style_dotted,
             extend=extend.none
          )
 
     target1Line := line.new(
             x1=levelsStartTime,
          y1=targetPrice,
-            x2=levelsStartTime + 50 * 60 * 1000,
+            x2=levelsStartTime + levelLineDuration,
          y2=targetPrice,
             xloc=xloc.bar_time,
          color=color.green,
          width=3,
-         style=line.style_dashed,
+         style=line.style_dotted,
             extend=extend.none
          )
 
     target2Line := line.new(
             x1=levelsStartTime,
          y1=target2Price,
-            x2=levelsStartTime + 50 * 60 * 1000,
+            x2=levelsStartTime + levelLineDuration,
          y2=target2Price,
             xloc=xloc.bar_time,
          color=color.orange,
          width=3,
-         style=line.style_dashed,
+         style=line.style_dotted,
             extend=extend.none
          )
 
@@ -660,7 +668,7 @@ if setupSaved and levelsDrawn and not breakoutDone
         purpleLine := line.new(
                x1=levelsStartTime,
              y1=lockedConfirmPrice,
-               x2=levelsStartTime + 50 * 60 * 1000,
+               x2=levelsStartTime + levelLineDuration,
              y2=lockedConfirmPrice,
                xloc=xloc.bar_time,
              color=color.purple,
@@ -681,7 +689,7 @@ if setupSaved and levelsDrawn and not na(yellowConfirmTime) and not na(yellowCon
     yellowLine := line.new(
             x1=levelsStartTime,
          y1=yellowConfirmPrice,
-            x2=levelsStartTime + 50 * 60 * 1000,
+            x2=levelsStartTime + levelLineDuration,
          y2=yellowConfirmPrice,
             xloc=xloc.bar_time,
          color=color.yellow,
