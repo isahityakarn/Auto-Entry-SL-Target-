@@ -1,6 +1,6 @@
 //@version=6
 
-indicator("Auto Entry SL Target v52", overlay=true, max_lines_count=100, max_labels_count=100, dynamic_requests=true)
+indicator("Auto Entry SL Target v53", overlay=true, max_lines_count=100, max_labels_count=100, dynamic_requests=true)
 
 enum Direction
     BUY
@@ -329,18 +329,23 @@ isValidBreakoutPrice(_entry, _target, _price, _direction) =>
     bool valid = false
 
     if _direction == Direction.BUY
-        valid := _price > _entry and _price <= _target
+        valid := _price > _entry
     else
-        valid := _price < _entry and _price >= _target
+        valid := _price < _entry
 
     valid
+
+
+isEntryBreakoutPrice(_entry, _price, _direction) =>
+
+    _direction == Direction.BUY ? _price > _entry : _price < _entry
 
 
 //=========================================================
 // DIRECT BREAKOUT
 //=========================================================
 
-directBreakout(_entry, _target, _setupTime, _direction, _windowEnd) =>
+directBreakout(_entry, _target, _setupTime, _direction, _windowEnd, _checkTarget) =>
 
     var bool done = false
     var int resultTime = na
@@ -348,17 +353,67 @@ directBreakout(_entry, _target, _setupTime, _direction, _windowEnd) =>
 
     if not na(_setupTime) and time > _setupTime and time <= _windowEnd and not done
 
-        bool valid = isValidBreakoutPrice(
-             _entry,
-             _target,
-             close,
-             _direction
-             )
+        bool valid = _checkTarget ? isValidBreakoutPrice(_entry, _target, close, _direction) : isEntryBreakoutPrice(_entry, close, _direction)
 
         if valid and barstate.isconfirmed
             resultTime := time_close
             resultPrice := close
             done := true
+
+    [resultTime, resultPrice]
+
+
+//=========================================================
+// 1M TWO-CANDLE BREAKOUT CONFIRMATION (BODY ONLY)
+//
+// Step 1: First 1m candle whose body (open/close) breaks
+//         the entry line → mark that candle's high (BUY)
+//         or low (SELL).
+// Step 2: Any subsequent 1m candle (not necessarily the
+//         next one) whose body CLOSES beyond the marked
+//         high/low confirms the breakout.
+// Wicks are ignored in both steps.
+//=========================================================
+
+twoStepBreakout(_entry, _target, _setupTime, _direction, _windowEnd) =>
+
+    var float firstCandleHigh = na   // marked high of first breaking candle (BUY)
+    var float firstCandleLow  = na   // marked low  of first breaking candle (SELL)
+    var bool  firstFound      = false
+    var bool  done            = false
+    var int   resultTime      = na
+    var float resultPrice     = na
+
+    if not na(_setupTime) and time >= _setupTime and time <= _windowEnd and not done
+
+        // Body high/low: the portion of the candle covered by open/close
+        float bodyHigh = math.max(open, close)
+        float bodyLow  = math.min(open, close)
+
+        if barstate.isconfirmed
+            if _direction == Direction.BUY
+                // Step 1: candle body breaks above entry
+                if not firstFound and bodyHigh > _entry
+                    firstCandleHigh := bodyHigh   // mark this candle's BODY high
+                    firstFound      := true
+
+                // Step 2: a later candle's body closes above the marked high
+                else if firstFound and close > firstCandleHigh
+                    resultTime  := time_close
+                    resultPrice := close
+                    done        := true
+
+            else
+                // Step 1: candle body breaks below entry
+                if not firstFound and bodyLow < _entry
+                    firstCandleLow := bodyLow     // mark this candle's BODY low
+                    firstFound     := true
+
+                // Step 2: a later candle's body closes below the marked low
+                else if firstFound and close < firstCandleLow
+                    resultTime  := time_close
+                    resultPrice := close
+                    done        := true
 
     [resultTime, resultPrice]
 
@@ -413,7 +468,7 @@ if setupSaved and levelsDrawn and setupTf == "1"
          oneMinuteEntryBreakout(
              entryPrice,
              targetPrice,
-             setupEndTime,
+             finalSetupTime,
              direction,
              checkWindowEnd
              ),
@@ -431,12 +486,24 @@ if setupSaved and levelsDrawn and setupTf == "1"
 //=========================================================
 // 5M SETUP - PURPLE
 //
-// 5M SINGLE
+// 1M TWO-CANDLE OR 5M SINGLE, WHICHEVER CONFIRMS FIRST
 //=========================================================
 
 if setupSaved and levelsDrawn and setupTf == "5"
 
-    // 5M single
+    [oneTime, onePrice] = request.security(
+         syminfo.tickerid,
+         "1",
+         twoStepBreakout(
+             entryPrice,
+             targetPrice,
+             setupEndTime,
+             direction,
+             checkWindowEnd
+             ),
+         lookahead=barmerge.lookahead_off
+         )
+
     [fiveTime, fivePrice] = request.security(
          syminfo.tickerid,
          "5",
@@ -445,19 +512,20 @@ if setupSaved and levelsDrawn and setupTf == "5"
              targetPrice,
              finalSetupTime,
              direction,
-             checkWindowEnd
+             checkWindowEnd,
+             false
              ),
          lookahead=barmerge.lookahead_off
          )
 
-    confirmTimeA := fiveTime
-    confirmPriceA := fivePrice
+    confirmTimeA := oneTime
+    confirmPriceA := onePrice
 
     confirmTimeB := na
     confirmPriceB := na
 
-    confirmTimeC := na
-    confirmPriceC := na
+    confirmTimeC := fiveTime
+    confirmPriceC := fivePrice
 
 
 //=========================================================
@@ -476,7 +544,8 @@ if setupSaved and levelsDrawn and setupTf == "30"
              targetPrice,
              finalSetupTime,
              direction,
-             checkWindowEnd
+             checkWindowEnd,
+             true
              ),
          lookahead=barmerge.lookahead_off
          )
@@ -489,7 +558,8 @@ if setupSaved and levelsDrawn and setupTf == "30"
              targetPrice,
              finalSetupTime,
              direction,
-             checkWindowEnd
+             checkWindowEnd,
+             true
              ),
          lookahead=barmerge.lookahead_off
          )
@@ -561,7 +631,8 @@ selectConfirmation(
      _target,
     _setupTime,
      _windowEnd,
-     _direction
+         _direction,
+         _entryOnly
      ) =>
 
     bool validA = false
@@ -570,30 +641,18 @@ selectConfirmation(
 
     if not na(_timeA) and not na(_priceA)
 
-        validA := _timeA > _setupTime and _timeA <= _windowEnd and isValidBreakoutPrice(
-             _entry,
-             _target,
-             _priceA,
-             _direction
-             )
+        bool priceValidA = _entryOnly ? isEntryBreakoutPrice(_entry, _priceA, _direction) : isValidBreakoutPrice(_entry, _target, _priceA, _direction)
+        validA := _timeA > _setupTime and _timeA <= _windowEnd and priceValidA
 
     if not na(_timeB) and not na(_priceB)
 
-        validB := _timeB > _setupTime and _timeB <= _windowEnd and isValidBreakoutPrice(
-             _entry,
-             _target,
-             _priceB,
-             _direction
-             )
+        bool priceValidB = _entryOnly ? isEntryBreakoutPrice(_entry, _priceB, _direction) : isValidBreakoutPrice(_entry, _target, _priceB, _direction)
+        validB := _timeB > _setupTime and _timeB <= _windowEnd and priceValidB
 
     if not na(_timeC) and not na(_priceC)
 
-        validC := _timeC > _setupTime and _timeC <= _windowEnd and isValidBreakoutPrice(
-             _entry,
-             _target,
-             _priceC,
-             _direction
-             )
+        bool priceValidC = _entryOnly ? isEntryBreakoutPrice(_entry, _priceC, _direction) : isValidBreakoutPrice(_entry, _target, _priceC, _direction)
+        validC := _timeC > _setupTime and _timeC <= _windowEnd and priceValidC
 
     int selectedTime = na
     float selectedPrice = na
@@ -637,7 +696,8 @@ if setupSaved and levelsDrawn and not breakoutDone
          targetPrice,
          finalSetupTime,
          checkWindowEnd,
-         direction
+         direction,
+         setupTf == "5"
          )
 
     if not na(selectedTime) and not na(selectedPrice)
