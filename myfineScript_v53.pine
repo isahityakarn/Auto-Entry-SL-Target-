@@ -1,12 +1,12 @@
 //@version=6
 
-indicator("Auto Entry SL Target v53", overlay=true, max_lines_count=100, max_labels_count=100, dynamic_requests=true)
+indicator("Auto Entry SL Target v54", overlay=true, max_lines_count=100, max_labels_count=100, dynamic_requests=true)
 
 enum Direction
     BUY
     SELL
 
-tradeTime = input.string("700", "Candle Time")
+tradeTime = input.string("", "Candle Time")
 
 direction = input.enum(Direction.BUY, "Direction")
 
@@ -17,7 +17,7 @@ setupTf = input.string(
      )
 
 setupDate = input.time(
-    timestamp("2026-10-10 00:00 +0530"),
+    timestamp("2026-10-12 00:00 +0530"),
     "Setup Date"
     )
 
@@ -236,7 +236,7 @@ if setupSaved and not levelsDrawn
 // STOP LOSS HIT CHECK
 //=========================================================
 
-slStopCheck(_setupEndTime, _slPrice, _direction, _windowEnd) =>
+hitStopLoss(_setupEndTime, _slPrice, _direction, _windowEnd) =>
     var bool done = false
     var int resultTime = na
 
@@ -254,6 +254,27 @@ slStopCheck(_setupEndTime, _slPrice, _direction, _windowEnd) =>
 
 
 //=========================================================
+// TARGET HIT (any timeframe)
+//=========================================================
+
+hitTarget(_price, _target, _direction, _windowEnd) =>
+    var bool done = false
+    var int resultTime = na
+
+    if time <= _windowEnd and not done
+        if _direction == Direction.BUY
+            if high >= _target
+                resultTime := time
+                done := true
+        else
+            if low <= _target
+                resultTime := time
+                done := true
+
+    [resultTime]
+
+
+//=========================================================
 // TARGET TOUCH: DOTTED TO SOLID
 //=========================================================
 
@@ -263,7 +284,7 @@ if setupSaved and levelsDrawn
         [sl1mTime] = request.security(
              syminfo.tickerid,
              "1",
-             slStopCheck(
+             hitStopLoss(
                  setupEndTime,
                  slPrice,
                  direction,
@@ -281,7 +302,7 @@ if setupSaved and levelsDrawn
         [sl2mTime] = request.security(
              syminfo.tickerid,
              "1",
-             slStopCheck(
+             hitStopLoss(
                  setupEndTime,
                  sl2Price,
                  direction,
@@ -377,9 +398,11 @@ directBreakout(_entry, _target, _setupTime, _direction, _windowEnd, _checkTarget
 
 twoStepBreakout(_entry, _target, _setupTime, _direction, _windowEnd) =>
 
-    var float firstCandleHigh = na   // marked high of first breaking candle (BUY)
-    var float firstCandleLow  = na   // marked low  of first breaking candle (SELL)
+    var float firstCandleHigh = na   // marked body high of first breaking candle (BUY)
+    var float firstCandleLow  = na   // marked body low  of first breaking candle (SELL)
     var bool  firstFound      = false
+    var int   firstCandleTime = na   // time when first candle broke (for yellow line)
+    var float firstCandlePrice = na  // close price of first candle (for yellow line)
     var bool  done            = false
     var int   resultTime      = na
     var float resultPrice     = na
@@ -395,6 +418,8 @@ twoStepBreakout(_entry, _target, _setupTime, _direction, _windowEnd) =>
                 // Step 1: candle body breaks above entry
                 if not firstFound and bodyHigh > _entry
                     firstCandleHigh := bodyHigh   // mark this candle's BODY high
+                    firstCandleTime := time_close // save time for yellow line
+                    firstCandlePrice := close     // save price for yellow line
                     firstFound      := true
 
                 // Step 2: a later candle's body closes above the marked high
@@ -407,6 +432,8 @@ twoStepBreakout(_entry, _target, _setupTime, _direction, _windowEnd) =>
                 // Step 1: candle body breaks below entry
                 if not firstFound and bodyLow < _entry
                     firstCandleLow := bodyLow     // mark this candle's BODY low
+                    firstCandleTime := time_close // save time for yellow line
+                    firstCandlePrice := close     // save price for yellow line
                     firstFound     := true
 
                 // Step 2: a later candle's body closes below the marked low
@@ -415,7 +442,10 @@ twoStepBreakout(_entry, _target, _setupTime, _direction, _windowEnd) =>
                     resultPrice := close
                     done        := true
 
-    [resultTime, resultPrice]
+    [resultTime, resultPrice, firstCandleTime, firstCandlePrice]
+
+
+
 
 
 //=========================================================
@@ -429,12 +459,16 @@ oneMinuteEntryBreakout(_entry, _target, _setupEndTime, _direction, _windowEnd) =
     var float resultPrice = na
 
     if not na(_setupEndTime) and time >= _setupEndTime and time <= _windowEnd and not done
+        
+        float bodyHigh = math.max(open, close)
+        float bodyLow  = math.min(open, close)
+        
         bool breakout = false
 
         if _direction == Direction.BUY
-            breakout := close > _entry and close <= _target
+            breakout := bodyHigh > _entry and close <= _target
         else
-            breakout := close < _entry and close >= _target
+            breakout := bodyLow < _entry and close >= _target
 
         if breakout and barstate.isconfirmed
             resultTime := time
@@ -460,6 +494,10 @@ float confirmPriceB = na
 int confirmTimeC = na
 float confirmPriceC = na
 
+
+//=========================================================
+// 1M SETUP - YELLOW LINE (kept for 1M setup only)
+//=========================================================
 
 if setupSaved and levelsDrawn and setupTf == "1"
     [oneMinConfirmTime, oneMinConfirmPrice] = request.security(
@@ -491,7 +529,7 @@ if setupSaved and levelsDrawn and setupTf == "1"
 
 if setupSaved and levelsDrawn and setupTf == "5"
 
-    [oneTime, onePrice] = request.security(
+    [oneTime, onePrice, yellowTime5m, yellowPrice5m] = request.security(
          syminfo.tickerid,
          "1",
          twoStepBreakout(
@@ -503,6 +541,11 @@ if setupSaved and levelsDrawn and setupTf == "5"
              ),
          lookahead=barmerge.lookahead_off
          )
+    
+    // Yellow line: ONLY when BOTH candles complete (two-step confirmation done)
+    if not na(oneTime) and not na(onePrice)
+        yellowConfirmTime := oneTime
+        yellowConfirmPrice := onePrice
 
     [fiveTime, fivePrice] = request.security(
          syminfo.tickerid,
@@ -510,7 +553,7 @@ if setupSaved and levelsDrawn and setupTf == "5"
          directBreakout(
              entryPrice,
              targetPrice,
-             finalSetupTime,
+             setupEndTime,
              direction,
              checkWindowEnd,
              false
@@ -518,14 +561,14 @@ if setupSaved and levelsDrawn and setupTf == "5"
          lookahead=barmerge.lookahead_off
          )
 
-    confirmTimeA := oneTime
-    confirmPriceA := onePrice
+    // Purple line: ONLY for 5-minute confirmation
+    confirmTimeA := fiveTime
+    confirmPriceA := fivePrice
 
     confirmTimeB := na
     confirmPriceB := na
 
-    confirmTimeC := fiveTime
-    confirmPriceC := fivePrice
+    confirmTimeC := na
 
 
 //=========================================================
@@ -542,7 +585,7 @@ if setupSaved and levelsDrawn and setupTf == "30"
          directBreakout(
              entryPrice,
              targetPrice,
-             finalSetupTime,
+             setupEndTime,
              direction,
              checkWindowEnd,
              true
@@ -556,7 +599,7 @@ if setupSaved and levelsDrawn and setupTf == "30"
          directBreakout(
              entryPrice,
              targetPrice,
-             finalSetupTime,
+             setupEndTime,
              direction,
              checkWindowEnd,
              true
@@ -568,7 +611,7 @@ if setupSaved and levelsDrawn and setupTf == "30"
 
     if not na(fiveTime30) and not na(fivePrice30)
 
-        valid5m := fiveTime30 > finalSetupTime and fiveTime30 <= checkWindowEnd and isValidBreakoutPrice(
+        valid5m := fiveTime30 > setupEndTime and fiveTime30 <= checkWindowEnd and isValidBreakoutPrice(
              entryPrice,
              targetPrice,
              fivePrice30,
@@ -592,7 +635,7 @@ if setupSaved and levelsDrawn and setupTf == "30"
 
         if not na(thirtyTime) and not na(thirtyPrice)
 
-            valid30m := thirtyTime > finalSetupTime and thirtyTime <= checkWindowEnd and isValidBreakoutPrice(
+            valid30m := thirtyTime > setupEndTime and thirtyTime <= checkWindowEnd and isValidBreakoutPrice(
                  entryPrice,
                  targetPrice,
                  thirtyPrice,
@@ -694,7 +737,7 @@ if setupSaved and levelsDrawn and not breakoutDone
          confirmPriceC,
          entryPrice,
          targetPrice,
-         finalSetupTime,
+         setupEndTime,
          checkWindowEnd,
          direction,
          setupTf == "5"
@@ -734,12 +777,12 @@ if setupSaved and levelsDrawn and not na(yellowConfirmTime) and not na(yellowCon
             x2=levelsLineEndTime,
          y2=yellowConfirmPrice,
             xloc=xloc.bar_time,
-         color=color.purple,
-         width=1,
+         color=color.rgb(255, 165, 0),  // Dark orange/yellow
+         width=2,
          style=line.style_solid,
             extend=extend.none
          )
 
 plot(entryPrice, title="Entry", color=color.blue, display=display.price_scale)
 plot(lockedConfirmPrice, title="Purple", color=color.purple, display=display.price_scale)
-plot(yellowLinePrice, title="Yellow", color=color.purple, display=display.price_scale)
+plot(yellowLinePrice, title="Yellow", color=color.rgb(255, 165, 0), display=display.price_scale)
