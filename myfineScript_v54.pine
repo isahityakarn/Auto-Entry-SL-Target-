@@ -234,11 +234,11 @@ hitStopLoss(_setupEndTime, _slPrice, _direction, _windowEnd) =>
 // TARGET HIT (any timeframe)
 //=========================================================
 
-hitTarget(_price, _target, _direction, _windowEnd) =>
+hitTarget(_setupEndTime, _target, _direction, _windowEnd) =>
     var bool done = false
     var int resultTime = na
 
-    if time <= _windowEnd and not done
+    if not na(_setupEndTime) and time >= _setupEndTime and time <= _windowEnd and not done
         if _direction == Direction.BUY
             if high >= _target
                 resultTime := time
@@ -275,29 +275,34 @@ if setupSaved and levelsDrawn
             line.set_width(slLine, 2)
             slLocked := true
 
+    // Target touch check on current chart timeframe
     if direction == Direction.BUY
 
-        if time <= checkWindowEnd and high >= targetPrice and not na(target1Line) and not target1Touched
-            line.set_style(target1Line, line.style_solid)
-            line.set_width(target1Line, 2)
-            target1Touched := true
+        if time >= setupEndTime and time <= checkWindowEnd and not target1Touched and not na(target1Line)
+            if high >= targetPrice - syminfo.mintick * 0.5  // Small tolerance for floating point
+                line.set_style(target1Line, line.style_solid)
+                line.set_width(target1Line, 2)
+                target1Touched := true
 
-        if time <= levelsLineEndTime and high >= target2Price and not na(target2Line) and not target2Touched
-            line.set_style(target2Line, line.style_solid)
-            line.set_width(target2Line, 2)
-            target2Touched := true
+        if time >= setupEndTime and time <= checkWindowEnd and not target2Touched and not na(target2Line)
+            if high >= target2Price - syminfo.mintick * 0.5
+                line.set_style(target2Line, line.style_solid)
+                line.set_width(target2Line, 2)
+                target2Touched := true
 
     else
 
-        if time <= checkWindowEnd and low <= targetPrice and not na(target1Line) and not target1Touched
-            line.set_style(target1Line, line.style_solid)
-            line.set_width(target1Line, 2)
-            target1Touched := true
+        if time >= setupEndTime and time <= checkWindowEnd and not target1Touched and not na(target1Line)
+            if low <= targetPrice + syminfo.mintick * 0.5
+                line.set_style(target1Line, line.style_solid)
+                line.set_width(target1Line, 2)
+                target1Touched := true
 
-        if time <= levelsLineEndTime and low <= target2Price and not na(target2Line) and not target2Touched
-            line.set_style(target2Line, line.style_solid)
-            line.set_width(target2Line, 2)
-            target2Touched := true
+        if time >= setupEndTime and time <= checkWindowEnd and not target2Touched and not na(target2Line)
+            if low <= target2Price + syminfo.mintick * 0.5
+                line.set_style(target2Line, line.style_solid)
+                line.set_width(target2Line, 2)
+                target2Touched := true
 
 
 //=========================================================
