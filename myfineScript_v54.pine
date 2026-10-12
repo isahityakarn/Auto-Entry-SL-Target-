@@ -87,7 +87,6 @@ int checkWindowEnd = setupEndTime + checkWindowDuration
 
 var float entryPrice = na
 var float slPrice = na
-var float sl2Price = na
 var float targetPrice = na
 var float target2Price = na
 var float candleRange = na
@@ -97,7 +96,6 @@ var int levelsStartBar = na
 var int levelsStartTime = na
 var int levelsLineEndTime = na
 var bool slLocked = false
-var bool sl2Locked = false
 var bool target1Touched = false
 var bool target2Touched = false
 
@@ -108,12 +106,12 @@ var bool target2Touched = false
 
 var line entryLine = na
 var line slLine = na
-var line sl2Line = na
 var line target1Line = na
 var line target2Line = na
 var line purpleLine = na
 var line yellowLine = na
 var float yellowLinePrice = na
+var line confirmTargetLine = na  // New target based on confirm line
 
 
 //=========================================================
@@ -139,14 +137,6 @@ if setupSaved and not levelsDrawn
 
         targetPrice := finalSetupLow - candleRange
         target2Price := finalSetupLow - candleRange * 2
-
-    bool isNifty = str.contains(str.upper(syminfo.ticker), "NIFTY")
-    bool isNaturalGas = str.contains(str.upper(syminfo.ticker), "NATURALGAS")
-    float slRangeLimit = isNifty ? 20.0 : isNaturalGas ? 1.0 : na
-
-    if not na(slRangeLimit) and candleRange > slRangeLimit
-        slPrice := direction == Direction.BUY ? entryPrice - slRangeLimit : entryPrice + slRangeLimit
-        sl2Price := direction == Direction.BUY ? finalSetupLow : finalSetupHigh
 
     levelsStartBar := bar_index
     levelsStartTime := time
@@ -182,19 +172,6 @@ if setupSaved and not levelsDrawn
          style=line.style_dotted,
             extend=extend.none
          )
-
-    if not na(sl2Price)
-        sl2Line := line.new(
-             x1=levelsStartTime,
-             y1=sl2Price,
-             x2=levelsLineEndTime,
-             y2=sl2Price,
-             xloc=xloc.bar_time,
-             color=color.red,
-             width=2,
-             style=line.style_dashed,
-             extend=extend.none
-             )
 
     target1Line := line.new(
             x1=levelsStartTime,
@@ -297,24 +274,6 @@ if setupSaved and levelsDrawn
             line.set_style(slLine, line.style_solid)
             line.set_width(slLine, 2)
             slLocked := true
-
-    if not na(sl2Price) and not sl2Locked
-        [sl2mTime] = request.security(
-             syminfo.tickerid,
-             "1",
-             hitStopLoss(
-                 setupEndTime,
-                 sl2Price,
-                 direction,
-                 checkWindowEnd
-                 ),
-             lookahead=barmerge.lookahead_off
-             )
-
-        if not na(sl2mTime) and not na(sl2Line)
-            line.set_style(sl2Line, line.style_solid)
-            line.set_width(sl2Line, 2)
-            sl2Locked := true
 
     if direction == Direction.BUY
 
@@ -724,6 +683,7 @@ selectConfirmation(
 var bool breakoutDone = false
 var int lockedConfirmTime = na
 var float lockedConfirmPrice = na
+var bool confirmTargetDrawn = false  // Track if confirm target line is drawn
 
 if setupSaved and levelsDrawn and not breakoutDone
 
@@ -801,3 +761,59 @@ if setupSaved and levelsDrawn and not na(yellowConfirmTime) and not na(yellowCon
 plot(entryPrice, title="Entry", color=color.blue, display=display.price_scale)
 plot(lockedConfirmPrice, title="Purple", color=color.purple, display=display.price_scale)
 plot(yellowLinePrice, title="Yellow", color=color.rgb(255, 165, 0), display=display.price_scale)
+
+
+//=========================================================
+// CONFIRM TARGET LINE (based on first confirm line - yellow or purple)
+//=========================================================
+
+if setupSaved and levelsDrawn and not confirmTargetDrawn
+
+    // Check which confirm line came first
+    int firstConfirmTime = na
+    float firstConfirmPrice = na
+    
+    if not na(yellowConfirmTime) and not na(lockedConfirmTime)
+        // Both exist - pick earlier one
+        if yellowConfirmTime < lockedConfirmTime
+            firstConfirmTime := yellowConfirmTime
+            firstConfirmPrice := yellowConfirmPrice
+        else
+            firstConfirmTime := lockedConfirmTime
+            firstConfirmPrice := lockedConfirmPrice
+    else if not na(yellowConfirmTime)
+        // Only yellow exists
+        firstConfirmTime := yellowConfirmTime
+        firstConfirmPrice := yellowConfirmPrice
+    else if not na(lockedConfirmTime)
+        // Only purple exists
+        firstConfirmTime := lockedConfirmTime
+        firstConfirmPrice := lockedConfirmPrice
+    
+    // If we have a confirm line, calculate and draw target
+    if not na(firstConfirmTime) and not na(firstConfirmPrice)
+        
+        // Calculate distance from confirm line to SL
+        float confirmToSL = math.abs(firstConfirmPrice - slPrice)
+        
+        // Calculate new target price
+        float confirmTargetPrice = na
+        if direction == Direction.BUY
+            confirmTargetPrice := firstConfirmPrice + confirmToSL
+        else
+            confirmTargetPrice := firstConfirmPrice - confirmToSL
+        
+        // Draw confirm target line
+        confirmTargetLine := line.new(
+                x1=levelsStartTime,
+             y1=confirmTargetPrice,
+                x2=levelsLineEndTime,
+             y2=confirmTargetPrice,
+                xloc=xloc.bar_time,
+             color=color.rgb(0, 150, 255),  // Light blue
+             width=2,
+             style=line.style_solid,
+                extend=extend.none
+             )
+        
+        confirmTargetDrawn := true
