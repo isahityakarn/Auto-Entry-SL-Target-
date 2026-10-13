@@ -79,6 +79,7 @@ if setupFoundRaw and not setupSaved
 int setupEndTime = finalSetupTime + timeframe.in_seconds(setupTf) * 1000
 int checkWindowDuration = setupTf == "30" ? 3 * 60 * 60 * 1000 : 50 * 60 * 1000
 int checkWindowEnd = setupEndTime + checkWindowDuration
+int purpleCheckStartTime = finalSetupTime + 4 * 60 * 1000  // 4 minutes after setup start
 
 
 //=========================================================
@@ -515,12 +516,13 @@ if setupSaved and levelsDrawn and setupTf == "5"
          directBreakout(
              entryPrice,
              targetPrice,
-             setupEndTime,
+             purpleCheckStartTime,
              direction,
              checkWindowEnd,
              false
              ),
-         lookahead=barmerge.lookahead_off
+         lookahead=barmerge.lookahead_off,
+         gaps=barmerge.gaps_on
          )
 
     // Purple line: ONLY for 5-minute confirmation
@@ -712,9 +714,9 @@ if setupSaved and levelsDrawn and not breakoutDone
         // Check if purple line is within valid range (between entry and target)
         bool validPurpleRange = false
         if direction == Direction.BUY
-            validPurpleRange := selectedPrice > entryPrice and selectedPrice <= targetPrice
+            validPurpleRange := selectedPrice > entryPrice and selectedPrice <= targetPrice + syminfo.mintick
         else
-            validPurpleRange := selectedPrice < entryPrice and selectedPrice >= targetPrice
+            validPurpleRange := selectedPrice < entryPrice and selectedPrice >= targetPrice - syminfo.mintick
 
         if validPurpleRange
             lockedConfirmTime := selectedTime
@@ -744,9 +746,9 @@ if setupSaved and levelsDrawn and not na(yellowConfirmTime) and not na(yellowCon
     // Check if yellow line is within valid range (between entry and target)
     bool validYellowRange = false
     if direction == Direction.BUY
-        validYellowRange := yellowConfirmPrice > entryPrice and yellowConfirmPrice <= targetPrice
+        validYellowRange := yellowConfirmPrice > entryPrice and yellowConfirmPrice <= targetPrice + syminfo.mintick
     else
-        validYellowRange := yellowConfirmPrice < entryPrice and yellowConfirmPrice >= targetPrice
+        validYellowRange := yellowConfirmPrice < entryPrice and yellowConfirmPrice >= targetPrice - syminfo.mintick
     
     if validYellowRange
         yellowLinePrice := yellowConfirmPrice
