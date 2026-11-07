@@ -159,8 +159,6 @@ if setupSaved and not levelsDrawn
          style=line.style_solid,
             extend=extend.none
          )
-    
-    label.new(x=levelsStartTime, y=entryPrice, text="E", xloc=xloc.bar_time, style=label.style_label_right, color=color.blue, textcolor=color.white, size=size.small)
 
     slLine := line.new(
             x1=levelsStartTime,
@@ -174,7 +172,28 @@ if setupSaved and not levelsDrawn
             extend=extend.none
          )
     
-    label.new(x=levelsStartTime, y=slPrice, text="SL", xloc=xloc.bar_time, style=label.style_label_right, color=color.red, textcolor=color.white, size=size.small)
+    // Draw rectangular box between entry and SL
+    box.new(
+         left=levelsStartTime,
+         top=math.max(entryPrice, slPrice),
+         right=levelsLineEndTime,
+         bottom=math.min(entryPrice, slPrice),
+         xloc=xloc.bar_time,
+         border_color=color.new(color.gray, 50),
+         border_width=1,
+         border_style=line.style_solid,
+         bgcolor=color.new(color.gray, 90),
+         extend=extend.none
+         )
+    
+    // Check if symbol is Natural Gas
+    bool isNaturalGas = str.contains(syminfo.ticker, "NATURALGAS") or str.contains(syminfo.ticker, "NG")
+    
+    // For Natural Gas, convert to points (multiply by 100), otherwise show regular price
+    string rangeText = isNaturalGas ? str.tostring(candleRange * 100, "#.##") : str.tostring(candleRange, "#.##")
+    
+    // Show SL label 10 candles after the entry line
+    label.new(x=levelsStartBar + 10, y=slPrice, text=rangeText, xloc=xloc.bar_index, style=label.style_label_right, color=color.red, textcolor=color.white, size=size.small)
 
     target1Line := line.new(
             x1=levelsStartTime,
@@ -204,31 +223,7 @@ if setupSaved and not levelsDrawn
     
     label.new(x=levelsStartTime, y=target2Price, text="T2", xloc=xloc.bar_time, style=label.style_label_right, color=color.orange, textcolor=color.white, size=size.small)
 
-    // Check if symbol is Natural Gas
-    bool isNaturalGas = str.contains(syminfo.ticker, "NATURALGAS") or str.contains(syminfo.ticker, "NG")
-    
-    // For Natural Gas, convert to points (multiply by 100), otherwise show regular price
-    string rangeText = isNaturalGas ? str.tostring(candleRange * 100, "#.##") : str.tostring(candleRange, "#.##")
-    
-    label.new(x=levelsStartBar, y=finalSetupHigh, text=rangeText, style=label.style_none, textcolor=color.black, size=size.small)
-
     levelsDrawn := true
-
-if setupSaved and levelsDrawn and na(candleLabel)
-    // Check if symbol is Natural Gas
-    bool isNaturalGas = str.contains(syminfo.ticker, "NATURALGAS") or str.contains(syminfo.ticker, "NG")
-    
-    // For Natural Gas, convert to points (multiply by 100), otherwise show regular price
-    string rangeText = isNaturalGas ? str.tostring(candleRange * 100, "#.##") : str.tostring(candleRange, "#.##")
-    
-    candleLabel := label.new(
-         x=levelsStartTime,
-         y=finalSetupHigh,
-         text=rangeText,
-         xloc=xloc.bar_time,
-         color=color.new(#000000, 10)
-         )
-
 
 //=========================================================
 // STOP LOSS HIT CHECK
