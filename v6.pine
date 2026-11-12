@@ -179,10 +179,10 @@ if setupSaved and not levelsDrawn
          right=levelsLineEndTime,
          bottom=math.min(entryPrice, slPrice),
          xloc=xloc.bar_time,
-         border_color=color.new(color.gray, 50),
+         border_color=color.new(color.red, 50),
          border_width=1,
          border_style=line.style_solid,
-         bgcolor=color.new(color.gray, 90),
+         bgcolor=color.new(color.red, 90),
          extend=extend.none
          )
     
