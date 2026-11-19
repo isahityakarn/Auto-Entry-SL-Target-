@@ -1,0 +1,512 @@
+//@version=6
+strategy("RE-ENTRY_FINAL_ALGO_ 15 MINTUES PAPER TEST MALA ", overlay = true, process_orders_on_close = false)
+
+// ══════════════════════════════════════════════
+// ATR INPUTS (entry engine)
+// ══════════════════════════════════════════════
+atr_mult    = input.int(8,     'ATR Multiplier',        group = 'ATR Trailing Stop (Entry Engine)')
+atr_period  = input.int(5,     'ATR Period',            group = 'ATR Trailing Stop (Entry Engine)')
+use_heikin  = input.bool(true, 'Use Heikin Ashi Source', group = 'ATR Trailing Stop (Entry Engine)')
+
+// ══════════════════════════════════════════════
+// EMA INPUTS
+// ══════════════════════════════════════════════
+fast_length = input.int(4,    'Fast EMA Period',  group = 'EMA Settings')
+slow_length = input.int(4,    'Slow EMA Period',  group = 'EMA Settings')
+show_ema    = input.bool(true,  'Show EMA Lines',   group = 'EMA Settings')
+fast_color  = input.color(color.blue,   'Fast EMA Color', group = 'EMA Settings')
+slow_color  = input.color(color.orange, 'Slow EMA Color', group = 'EMA Settings')
+
+// ══════════════════════════════════════════════
+// LIMIT ORDER EXPIRY
+// ══════════════════════════════════════════════
+limit_expiry = input.int(3, 'Limit Order Expiry (bars)',
+     group   = 'Limit Order',
+     minval  = 1,
+     maxval  = 20,
+     tooltip = 'If price does not hit the limit level within this many candles, the pending order is cancelled.')
+
+// ══════════════════════════════════════════════
+// TARGET & STOP LOSS  (fixed, optional)
+// ══════════════════════════════════════════════
+gTS = 'Target & Stop Loss'
+
+enable_tp = input.bool(true, 'Enable Target', group = gTS, inline = 'tp1')
+tp_type   = input.string('Points', '', options = ['Points', 'Percent'], group = gTS, inline = 'tp1')
+tp_value  = input.float(89, 'Target Value', minval = 0.01, step = 0.01, group = gTS)
+
+enable_sl = input.bool(true, 'Enable Stop Loss', group = gTS, inline = 'sl1')
+sl_type   = input.string('Points', '', options = ['Points', 'Percent', 'Swing Low/High'], group = gTS, inline = 'sl1')
+sl_value  = input.float(18, 'Stop Loss Value (Points/Percent)', minval = 0.01, step = 0.01, group = gTS,
+     tooltip = 'Used only when Stop Loss type is Points or Percent.')
+swing_lookback = input.int(29, 'Swing Lookback (Candles)', minval = 1, group = gTS,
+     tooltip = 'Used only when Stop Loss type is Swing Low/High.')
+
+showTgtLines = input.bool(true, 'Show Entry / Target / Stop Lines', group = gTS)
+entryLineCol = input.color(color.new(color.blue, 0),   'Entry Line', group = gTS, inline = 'c1')
+tpLineCol    = input.color(color.new(color.green, 0),  'Target Line', group = gTS, inline = 'c1')
+slLineCol    = input.color(color.new(color.red, 0),    'Stop Line',   group = gTS, inline = 'c2')
+
+// ══════════════════════════════════════════════
+// TRAILING STOP  (Supertrend based, optional)
+// ══════════════════════════════════════════════
+gTR = 'Trailing Stop (Supertrend)'
+
+enable_trail  = input.bool(true, 'Enable Trailing Stop', group = gTR,
+     tooltip = 'Activates only once the Supertrend agrees with the trade direction. Exits on candle CLOSE beyond the line.')
+trail_atr_len = input.int(6,  'Trailing ATR Period', group = gTR)
+trail_factor  = input.float(1, 'Trailing Factor',   minval = 0.1, step = 0.1, group = gTR)
+trailLineCol  = input.color(color.new(color.aqua, 0), 'Trailing Line Color', group = gTR)
+
+
+// ══════════════════════════════════════════════
+// TRADE CONTROLS
+// ══════════════════════════════════════════════
+longonly  = input.bool(true, 'Long Only',  group = 'Trade Controls', inline = 'trademode')
+shortonly = input.bool(true, 'Short Only', group = 'Trade Controls', inline = 'trademode')
+
+// ══════════════════════════════════════════════
+// INTRADAY CONTROLS
+// ══════════════════════════════════════════════
+intraday       = input.bool(true, '',                          group = 'Intraday Controls', inline = 'intraday')
+marketSession  = input.session('0915-1500', 'Intraday Session', group = 'Intraday Controls', inline = 'intraday')
+maxtrade       = input.bool(false, '',                          group = 'Intraday Controls', inline = 'maxtrade')
+MaxTradePerDay = input.int(1, 'Max Trade Per Day',              group = 'Intraday Controls', inline = 'maxtrade')
+
+// ══════════════════════════════════════════════
+// BACKTEST CONTROLS
+// ══════════════════════════════════════════════
+backtest      = input.bool(false, 'Enable Backtest Period', group = 'Backtest Controls')
+backtest_from = input.time(timestamp("11 Dec 2024 09:15 GMT+530"), 'Backtest From', group = 'Backtest Controls')
+backtest_to   = input.time(timestamp("01 Jan 2100 09:15 GMT+530"), 'Backtest To',   group = 'Backtest Controls')
+
+// ══════════════════════════════════════════════
+// ALERT MESSAGES
+// ══════════════════════════════════════════════
+MSG_LE = '{"key":"' + syminfo.prefix + '_key1","value":"1"}'
+MSG_LX = '{"key":"' + syminfo.prefix + '_key1","value":"2"}'
+MSG_SE = '{"key":"' + syminfo.prefix + '_key2","value":"1"}'
+MSG_SX = '{"key":"' + syminfo.prefix + '_key2","value":"2"}'
+
+COMM_LE = 'Long'
+COMM_LX = 'LongClose'
+COMM_SE = 'Short'
+COMM_SX = 'ShortClose'
+
+// ══════════════════════════════════════════════
+// PRICE SOURCE
+// ══════════════════════════════════════════════
+src = use_heikin ? request.security(ticker.heikinashi(syminfo.tickerid), timeframe.period, close) : close
+
+// ══════════════════════════════════════════════
+// EMA CALCULATIONS
+// ══════════════════════════════════════════════
+fast_ema = ta.ema(close, fast_length)
+slow_ema = ta.ema(close, slow_length)
+
+// ══════════════════════════════════════════════
+// ATR TRAILING STOP — entry engine, unchanged
+// ══════════════════════════════════════════════
+atr_val = ta.atr(atr_period)
+nLoss   = atr_mult * atr_val
+
+var float xATRTrailingStop = na
+xATRTrailingStop :=
+     src > nz(xATRTrailingStop[1]) and src[1] > nz(xATRTrailingStop[1]) ? math.max(nz(xATRTrailingStop[1]), src - nLoss) :
+     src < nz(xATRTrailingStop[1]) and src[1] < nz(xATRTrailingStop[1]) ? math.min(nz(xATRTrailingStop[1]), src + nLoss) :
+     src > nz(xATRTrailingStop[1]) ? src - nLoss : src + nLoss
+
+var int atrPos = 0
+atrPos :=
+     src[1] < nz(xATRTrailingStop[1]) and src > nz(xATRTrailingStop[1]) ?  1 :
+     src[1] > nz(xATRTrailingStop[1]) and src < nz(xATRTrailingStop[1]) ? -1 :
+     nz(atrPos[1], 0)
+
+ema_1 = ta.ema(src, 1)
+above = ta.crossover(ema_1, xATRTrailingStop)
+below = ta.crossover(xATRTrailingStop, ema_1)
+
+ce = src > xATRTrailingStop and above
+pe = src < xATRTrailingStop and below
+
+diamondExit = atrPos != atrPos[1] and not na(atrPos[1])
+
+// ══════════════════════════════════════════════
+// EMA CROSSOVER FILTER
+// ══════════════════════════════════════════════
+ema_buy_filter  = open < fast_ema and open < slow_ema and
+                  close > fast_ema and close > slow_ema
+
+ema_sell_filter = open > fast_ema and open > slow_ema and
+                  close < fast_ema and close < slow_ema
+
+rawBuy  = ce and ema_buy_filter
+rawSell = pe and ema_sell_filter
+
+// ══════════════════════════════════════════════
+// LIMIT ORDER ENGINE (entry mechanism — unchanged)
+// ══════════════════════════════════════════════
+var float pendingBuyLimit  = na
+var float pendingSellLimit = na
+var int   buyLimitBar      = na
+var int   sellLimitBar     = na
+
+if rawBuy
+    pendingBuyLimit  := high
+    buyLimitBar      := bar_index
+    pendingSellLimit := na
+    sellLimitBar     := na
+
+if rawSell
+    pendingSellLimit := low
+    sellLimitBar     := bar_index
+    pendingBuyLimit  := na
+    buyLimitBar      := na
+
+if not na(pendingBuyLimit) and (bar_index - buyLimitBar) >= limit_expiry
+    pendingBuyLimit := na
+    buyLimitBar     := na
+
+if not na(pendingSellLimit) and (bar_index - sellLimitBar) >= limit_expiry
+    pendingSellLimit := na
+    sellLimitBar     := na
+
+buyLimitHit  = not na(pendingBuyLimit)  and high >= pendingBuyLimit  and strategy.position_size <= 0
+sellLimitHit = not na(pendingSellLimit) and low  <= pendingSellLimit and strategy.position_size >= 0
+
+if buyLimitHit
+    pendingBuyLimit := na
+    buyLimitBar     := na
+
+if sellLimitHit
+    pendingSellLimit := na
+    sellLimitBar     := na
+
+// ══════════════════════════════════════════════
+// SIGNAL-BASED EXITS
+// ══════════════════════════════════════════════
+COND_LX = diamondExit or rawSell
+COND_SX = diamondExit or rawBuy
+
+// ══════════════════════════════════════════════
+// SESSION & BACKTEST FILTERS
+// ══════════════════════════════════════════════
+barInSession(sess) =>
+    time(timeframe.period, sess, 'GMT+530') != 0
+
+bool intradaySession = barInSession(marketSession)
+bool backtest_period = time >= backtest_from and time <= backtest_to
+
+bgcolor(intraday and intradaySession ? color.new(color.aqua, 90) : na)
+
+var int tradecount = 0
+tradecount := session.isfirstbar ? 0 :
+              (strategy.position_size > 0 and strategy.position_size[1] <= 0) or
+              (strategy.position_size < 0 and strategy.position_size[1] >= 0) ?
+              tradecount[1] + 1 : tradecount[1]
+
+bool sessionOk = intraday ? intradaySession and (maxtrade ? tradecount < MaxTradePerDay : true) : true
+bool btOk      = backtest ? backtest_period : true
+
+// ══════════════════════════════════════════════
+// FINAL SIGNALS
+// ══════════════════════════════════════════════
+SIG_LE = buyLimitHit  and longonly  and sessionOk and btOk
+SIG_SE = sellLimitHit and shortonly and sessionOk and btOk
+SIG_LX = COND_LX or (not intradaySession and intraday)
+SIG_SX = COND_SX or (not intradaySession and intraday)
+
+// ══════════════════════════════════════════════
+// SWING LOW / HIGH  (for Swing-based Stop Loss)
+// ══════════════════════════════════════════════
+swingLow  = ta.lowest(low,  swing_lookback)
+swingHigh = ta.highest(high, swing_lookback)
+
+// ══════════════════════════════════════════════
+// STRATEGY EXECUTION — entries unchanged
+// ══════════════════════════════════════════════
+if SIG_LE
+    strategy.cancel("Short")
+    strategy.close('Short', alert_message = MSG_SX, comment = COMM_SX)
+    strategy.entry('Long',  strategy.long, stop = high, alert_message = MSG_LE, comment = COMM_LE)
+
+if SIG_SE
+    strategy.cancel("Long")
+    strategy.close('Long',  alert_message = MSG_LX, comment = COMM_LX)
+    strategy.entry('Short', strategy.short, stop = low, alert_message = MSG_SE, comment = COMM_SE)
+
+var bool LongTrend = false 
+var bool ShortTrend = false 
+
+if strategy.position_size < 0 and strategy.position_size[1] >= 0 or pe
+    strategy.cancel("Long")
+if strategy.position_size > 0 and strategy.position_size[1] <= 0 or ce
+    strategy.cancel("Short")
+
+if pe
+    LongTrend:=false
+    ShortTrend:=true
+if ce
+    LongTrend:=true
+    ShortTrend:=false
+
+if LongTrend and strategy.closedtrades.entry_id(strategy.closedtrades - 1)=='Long' and strategy.closedtrades != strategy.closedtrades[1] and strategy.closedtrades.profit(strategy.closedtrades - 1)<0
+    strategy.entry('Long',  strategy.long, stop = strategy.closedtrades.entry_price(strategy.closedtrades - 1), alert_message = MSG_LE, comment = 'L2')
+
+if ShortTrend and strategy.closedtrades.entry_id(strategy.closedtrades - 1)=='Short' and strategy.closedtrades != strategy.closedtrades[1] and strategy.closedtrades.profit(strategy.closedtrades - 1)<0
+    strategy.entry('Short', strategy.short, stop = strategy.closedtrades.entry_price(strategy.closedtrades - 1), alert_message = MSG_SE, comment = 'S2')
+
+// ══════════════════════════════════════════════
+// FRESH FILL DETECTION
+// ══════════════════════════════════════════════
+freshLongFill  = strategy.position_size > 0 and strategy.position_size[1] <= 0
+freshShortFill = strategy.position_size < 0 and strategy.position_size[1] >= 0
+
+// ══════════════════════════════════════════════
+// TARGET / STOP LOSS LEVEL CALCULATION  (fixed)
+// ══════════════════════════════════════════════
+var float entryPrice = na
+var float tpLevel     = na
+var float slLevel     = na
+var int   posDir      = 0
+
+if freshLongFill
+    entryPrice := strategy.position_avg_price
+    posDir     := 1
+    tpLevel := enable_tp ? (tp_type == 'Points' ? entryPrice + tp_value : entryPrice * (1 + tp_value / 100)) : na
+    slLevel := enable_sl ?
+         (sl_type == 'Points'  ? entryPrice - sl_value :
+          sl_type == 'Percent' ? entryPrice * (1 - sl_value / 100) : swingLow) : na
+
+if freshShortFill
+    entryPrice := strategy.position_avg_price
+    posDir     := -1
+    tpLevel := enable_tp ? (tp_type == 'Points' ? entryPrice - tp_value : entryPrice * (1 - tp_value / 100)) : na
+    slLevel := enable_sl ?
+         (sl_type == 'Points'  ? entryPrice + sl_value :
+          sl_type == 'Percent' ? entryPrice * (1 + sl_value / 100) : swingHigh) : na
+
+if strategy.position_size == 0
+    posDir := 0
+
+// ══════════════════════════════════════════════
+// TRAILING STOP  (Supertrend — simple, direct, like reference template)
+// ══════════════════════════════════════════════
+[trailST, trailDir] = ta.supertrend(trail_factor, trail_atr_len)
+trailBull = trailDir == -1
+trailBear = trailDir ==  1
+
+var bool trailActive = false
+
+if freshLongFill
+    trailActive := enable_trail and trailBull
+
+if freshShortFill
+    trailActive := enable_trail and trailBear
+
+if enable_trail and posDir == 1 and not trailActive and trailBull
+    trailActive := true
+
+if enable_trail and posDir == -1 and not trailActive and trailBear
+    trailActive := true
+
+if strategy.position_size == 0
+    trailActive := false
+
+trailExitLong  = enable_trail and trailActive and posDir == 1  and close < trailST
+trailExitShort = enable_trail and trailActive and posDir == -1 and close > trailST
+
+// ══════════════════════════════════════════════
+// STRATEGY EXITS
+// ══════════════════════════════════════════════
+if strategy.position_size > 0 and (enable_tp or enable_sl)
+    strategy.exit('Long TP-SL', from_entry = 'Long',
+         limit = enable_tp ? tpLevel : na,
+         stop  = enable_sl ? slLevel : na,
+         alert_message = MSG_LX,
+         comment_profit = 'LongTP', comment_loss = 'LongSL')
+
+if strategy.position_size < 0 and (enable_tp or enable_sl)
+    strategy.exit('Short TP-SL', from_entry = 'Short',
+         limit = enable_tp ? tpLevel : na,
+         stop  = enable_sl ? slLevel : na,
+         alert_message = MSG_SX,
+         comment_profit = 'ShortTP', comment_loss = 'ShortSL')
+
+if SIG_LX
+    strategy.close('Long',  alert_message = MSG_LX, comment = COMM_LX)
+
+if SIG_SX
+    strategy.close('Short', alert_message = MSG_SX, comment = COMM_SX)
+
+if trailExitLong
+    strategy.close('Long', alert_message = MSG_LX, comment = 'TrailExit')
+
+if trailExitShort
+    strategy.close('Short', alert_message = MSG_SX, comment = 'TrailExit')
+
+// ══════════════════════════════════════════════
+// PLOTS — EMA
+// ══════════════════════════════════════════════
+plot(show_ema ? fast_ema : na, 'Fast EMA', color = fast_color, linewidth = 2)
+plot(show_ema ? slow_ema : na, 'Slow EMA', color = slow_color, linewidth = 2)
+
+plotshape(ce, title = 'buy (ATR)',
+     text = 'buy', style = shape.labelup, location = location.belowbar,
+     color = color.rgb(0, 0, 0), textcolor = color.white, size = size.tiny)
+
+plotshape(pe, title = 'sell (ATR)',
+     text = 'sell', style = shape.labeldown, location = location.abovebar,
+     color = color.rgb(181, 0, 187), textcolor = color.white, size = size.tiny)
+
+plotshape(diamondExit, title = 'Exit Diamond',
+     style = shape.diamond, location = location.belowbar,
+     color = color.black, size = size.small)
+
+plot(not na(pendingBuyLimit)  ? pendingBuyLimit  : na, 'Pending Buy Limit',
+     color = color.new(color.green, 20), linewidth = 1, style = plot.style_linebr)
+plot(not na(pendingSellLimit) ? pendingSellLimit : na, 'Pending Sell Limit',
+     color = color.new(color.red, 20),   linewidth = 1, style = plot.style_linebr)
+
+bgcolor(strategy.position_size > 0 ? color.new(color.green, 93) : na, title = 'Long BG')
+bgcolor(strategy.position_size < 0 ? color.new(color.red,   93) : na, title = 'Short BG')
+
+// ══════════════════════════════════════════════
+// TARGET / STOP LOSS LINES — created ONCE per trade, extended each bar
+// (Same proven pattern as the Buy Sell Flip Strategy template)
+// ══════════════════════════════════════════════
+var line entry_line = na
+var line sl_line     = na
+var line tp_line     = na
+var label entry_lbl  = na
+var label sl_lbl      = na
+var label tp_lbl      = na
+
+if (freshLongFill or freshShortFill) and showTgtLines
+    line.delete(entry_line)
+    line.delete(sl_line)
+    line.delete(tp_line)
+    label.delete(entry_lbl)
+    label.delete(sl_lbl)
+    label.delete(tp_lbl)
+
+    entry_line := line.new(bar_index, entryPrice, bar_index + 1, entryPrice, color = entryLineCol, width = 2)
+    entry_lbl  := label.new(bar_index + 1, entryPrice, 'ENTRY ' + str.tostring(entryPrice, format.mintick),
+         color = color.new(entryLineCol, 15), textcolor = color.white, style = label.style_label_left, size = size.small)
+
+    if enable_sl and not na(slLevel)
+        sl_line := line.new(bar_index, slLevel, bar_index + 1, slLevel, color = slLineCol, width = 2)
+        sl_lbl  := label.new(bar_index + 1, slLevel, 'STOP ' + str.tostring(slLevel, format.mintick),
+             color = color.new(slLineCol, 15), textcolor = color.white, style = label.style_label_left, size = size.small)
+
+    if enable_tp and not na(tpLevel)
+        tp_line := line.new(bar_index, tpLevel, bar_index + 1, tpLevel, color = tpLineCol, width = 2)
+        tp_lbl  := label.new(bar_index + 1, tpLevel, 'TARGET ' + str.tostring(tpLevel, format.mintick),
+             color = color.new(tpLineCol, 15), textcolor = color.white, style = label.style_label_left, size = size.small)
+
+// While the trade stays open, just extend the existing lines/labels to the current bar
+if showTgtLines and strategy.position_size != 0
+    if not na(entry_line)
+        line.set_x2(entry_line, bar_index + 1)
+        label.set_x(entry_lbl, bar_index + 1)
+    if not na(sl_line)
+        line.set_x2(sl_line, bar_index + 1)
+        label.set_x(sl_lbl, bar_index + 1)
+    if not na(tp_line)
+        line.set_x2(tp_line, bar_index + 1)
+        label.set_x(tp_lbl, bar_index + 1)
+
+// ══════════════════════════════════════════════
+// TRAILING STOP LINE — plotted directly, exactly like the reference plots st1/st2
+// ══════════════════════════════════════════════
+plot(enable_trail and trailActive and posDir != 0 ? trailST : na,
+     'Trailing Stop (Supertrend)', color = trailLineCol, linewidth = 2, style = plot.style_linebr)
+
+// ══════════════════════════════════════════════
+// DASHBOARD — Naveen Style
+// ══════════════════════════════════════════════
+var table dash = table.new(position.top_right, 2, 13,
+     bgcolor      = color.rgb(13, 14, 22, 5),
+     border_color = color.rgb(50, 55, 80, 20),
+     border_width = 1,
+     frame_color  = color.rgb(50, 55, 80, 20),
+     frame_width  = 1)
+
+f_cell(tb, col, row, txt, tc, bg) =>
+    table.cell(tb, col, row, txt, text_color = tc, text_size = size.small, bgcolor = bg)
+
+if barstate.islast
+    color _hb = color.rgb(30, 33, 50, 5)
+    color _ht = color.rgb(140, 160, 220, 0)
+    color _r1 = color.rgb(20, 22, 35, 5)
+    color _r2 = color.rgb(25, 28, 42, 5)
+
+    table.cell(dash, 0, 0, "PARAMETER", bgcolor = _hb, text_color = _ht, text_size = size.small)
+    table.cell(dash, 1, 0, "VALUE",     bgcolor = _hb, text_color = _ht, text_size = size.small)
+
+    pos_txt = strategy.position_size > 0 ? "● LONG"  :
+              strategy.position_size < 0 ? "● SHORT" : "○ FLAT"
+    pos_col = strategy.position_size > 0 ? color.lime :
+              strategy.position_size < 0 ? color.red  : color.gray
+    pos_bg  = strategy.position_size > 0 ? color.rgb(8, 153, 129, 10) :
+              strategy.position_size < 0 ? color.rgb(40, 22, 28, 10)  : _r1
+    f_cell(dash, 0, 1, "Position", _ht, _r1)
+    table.cell(dash, 1, 1, pos_txt, text_color = pos_col, bgcolor = pos_bg, text_size = size.small)
+
+    f_cell(dash, 0, 2, "Fast EMA (" + str.tostring(fast_length) + ")", _ht, _r2)
+    f_cell(dash, 1, 2, str.tostring(fast_ema, "#.##"), color.new(fast_color, 0), _r2)
+
+    f_cell(dash, 0, 3, "Slow EMA (" + str.tostring(slow_length) + ")", _ht, _r1)
+    f_cell(dash, 1, 3, str.tostring(slow_ema, "#.##"), color.new(slow_color, 0), _r1)
+
+    ema_trend     = fast_ema > slow_ema ? "▲ BULLISH" : "▼ BEARISH"
+    ema_trend_col = fast_ema > slow_ema ? color.lime  : color.red
+    f_cell(dash, 0, 4, "EMA Trend", _ht, _r2)
+    f_cell(dash, 1, 4, ema_trend, ema_trend_col, _r2)
+
+    f_cell(dash, 0, 5, "ATR Trail", _ht, _r1)
+    f_cell(dash, 1, 5, str.tostring(xATRTrailingStop, "#.##"), color.aqua, _r1)
+
+    pending_txt = not na(pendingBuyLimit)  ? "BUY  @ " + str.tostring(pendingBuyLimit,  "#.##") :
+                  not na(pendingSellLimit) ? "SELL @ " + str.tostring(pendingSellLimit, "#.##") : "None"
+    pending_col = not na(pendingBuyLimit)  ? color.lime :
+                  not na(pendingSellLimit) ? color.red  : color.gray
+    f_cell(dash, 0, 6, "Pending Limit", _ht, _r2)
+    f_cell(dash, 1, 6, pending_txt, pending_col, _r2)
+
+    f_cell(dash, 0, 7, "Target", _ht, _r1)
+    f_cell(dash, 1, 7, enable_tp and not na(tpLevel) ? str.tostring(tpLevel, "#.##") : "Off", enable_tp ? color.lime : color.gray, _r1)
+
+    f_cell(dash, 0, 8, "Stop Loss", _ht, _r2)
+    f_cell(dash, 1, 8, enable_sl and not na(slLevel) ? str.tostring(slLevel, "#.##") : "Off", enable_sl ? color.red : color.gray, _r2)
+
+    trail_txt = not enable_trail ? "Off" : trailActive ? "● Active @ " + str.tostring(trailST, "#.##") : "Waiting..."
+    trail_col = not enable_trail ? color.gray : trailActive ? color.aqua : color.orange
+    f_cell(dash, 0, 9, "Trailing Stop", _ht, _r1)
+    f_cell(dash, 1, 9, trail_txt, trail_col, _r1)
+
+    pnl     = strategy.netprofit
+    pnl_col = pnl >= 0 ? color.lime : color.red
+    f_cell(dash, 0, 10, "Net P&L", _ht, _r2)
+    f_cell(dash, 1, 10, "₹" + str.tostring(pnl, "#.##"), pnl_col, _r2)
+
+    wins  = strategy.wintrades
+    total = strategy.closedtrades
+    wr    = total > 0 ? wins / total * 100 : 0.0
+    f_cell(dash, 0, 11, "Win Rate", _ht, _r1)
+    f_cell(dash, 1, 11,
+         str.tostring(wr, "#.##") + "%  (" + str.tostring(wins) + "/" + str.tostring(total) + ")",
+         wr >= 50 ? color.lime : color.red, _r1)
+
+    f_cell(dash, 0, 12, "Today Trades", _ht, _r2)
+    f_cell(dash, 1, 12, str.tostring(tradecount), color.yellow, _r2)
+
+// ══════════════════════════════════════════════
+// ALERT CONDITIONS
+// ══════════════════════════════════════════════
+alertcondition(SIG_LE,       '🟢 BUY Entry',    '📈 BUY Long Entry on {{ticker}} | {{interval}}')
+alertcondition(SIG_SE,       '🔴 SELL Entry',   '📉 SELL Short Entry on {{ticker}} | {{interval}}')
+alertcondition(SIG_LX,       '📤 BUY Exit',     '📤 Long Exit on {{ticker}} | {{interval}}')
+alertcondition(SIG_SX,       '📤 SELL Exit',    '📤 Short Exit on {{ticker}} | {{interval}}')
+alertcondition(diamondExit,  '◆ Diamond Exit',  '◆ ATR Diamond Exit on {{ticker}} | {{interval}}')
+alertcondition(trailExitLong or trailExitShort, '🟦 Trailing Stop Exit', '🟦 Trailing Stop Exit on {{ticker}} | {{interval}}')

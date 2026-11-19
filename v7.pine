@@ -17,7 +17,7 @@ setupTf = input.string(
      )
 
 setupDate = input.time(
-    timestamp("2026-11-06 00:00 +0530"),
+    timestamp("2026-11-14 00:00 +0530"),
     "Setup Date"
     )
 
@@ -106,6 +106,8 @@ var bool target1Touched = false
 var bool target2Touched = false
 
 var label candleLabel = na
+var bool slBroken = false
+var int slBrokenTime = na
 
 
 //=========================================================
@@ -117,6 +119,9 @@ var line target1Line = na
 var line target2Line = na
 var line yellowLine = na
 var float yellowLinePrice = na
+var label target1Label = na
+var label target2Label = na
+var label slLabel = na
 
 
 //=========================================================
@@ -207,8 +212,6 @@ if setupSaved and not levelsDrawn
             extend=extend.none
          )
     
-    label.new(x=levelsStartTime, y=targetPrice, text="T1", xloc=xloc.bar_time, style=label.style_label_right, color=color.green, textcolor=color.white, size=size.small)
-    
     // Draw rectangular box between Entry and T1 (green)
     box.new(
          left=levelsStartTime,
@@ -234,8 +237,6 @@ if setupSaved and not levelsDrawn
          style=line.style_dotted,
             extend=extend.none
          )
-    
-    label.new(x=levelsStartTime, y=target2Price, text="T2", xloc=xloc.bar_time, style=label.style_label_right, color=color.orange, textcolor=color.white, size=size.small)
 
     // Draw rectangular box between T1 and T2 (orange)
     box.new(
@@ -297,6 +298,11 @@ if setupSaved and levelsDrawn
             line.set_style(slLine, line.style_solid)
             line.set_width(slLine, 1)
             slLocked := true
+            slBroken := true
+            slBrokenTime := sl1mTime
+            // Show SL label when SL line becomes solid
+            if na(slLabel)
+                slLabel := label.new(x=levelsStartTime, y=slPrice, text="SL", xloc=xloc.bar_time, style=label.style_label_right, color=color.red, textcolor=color.white, size=size.small)
 
     // Target touch check on current chart timeframe
     if direction == Direction.BUY
@@ -306,12 +312,21 @@ if setupSaved and levelsDrawn
                 line.set_style(target1Line, line.style_solid)
                 line.set_width(target1Line, 1)
                 target1Touched := true
+                // Hide T1 line when touched
+                line.set_color(target1Line, color.new(color.green, 100))
+                line.set_width(target1Line, 0)
+                // Show T1 label when touched
+                if na(target1Label)
+                    target1Label := label.new(x=levelsStartTime, y=targetPrice, text="T1", xloc=xloc.bar_time, style=label.style_label_right, color=color.green, textcolor=color.white, size=size.small)
 
-        if time >= setupEndTime and time <= checkWindowEnd and not target2Touched and not na(target2Line)
+        if time >= setupEndTime and time <= checkWindowEnd and not target2Touched and not na(target2Line) and target1Touched
             if high >= target2Price - syminfo.mintick * 0.5
                 line.set_style(target2Line, line.style_solid)
                 line.set_width(target2Line, 1)
                 target2Touched := true
+                // Show T2 label when touched
+                if na(target2Label)
+                    target2Label := label.new(x=levelsStartTime, y=target2Price, text="T2", xloc=xloc.bar_time, style=label.style_label_right, color=color.orange, textcolor=color.white, size=size.small)
 
     else
 
@@ -320,12 +335,21 @@ if setupSaved and levelsDrawn
                 line.set_style(target1Line, line.style_solid)
                 line.set_width(target1Line, 1)
                 target1Touched := true
+                // Hide T1 line when touched
+                line.set_color(target1Line, color.new(color.green, 100))
+                line.set_width(target1Line, 0)
+                // Show T1 label when touched
+                if na(target1Label)
+                    target1Label := label.new(x=levelsStartTime, y=targetPrice, text="T1", xloc=xloc.bar_time, style=label.style_label_right, color=color.green, textcolor=color.white, size=size.small)
 
-        if time >= setupEndTime and time <= checkWindowEnd and not target2Touched and not na(target2Line)
+        if time >= setupEndTime and time <= checkWindowEnd and not target2Touched and not na(target2Line) and target1Touched
             if low <= target2Price + syminfo.mintick * 0.5
                 line.set_style(target2Line, line.style_solid)
                 line.set_width(target2Line, 1)
                 target2Touched := true
+                // Show T2 label when touched
+                if na(target2Label)
+                    target2Label := label.new(x=levelsStartTime, y=target2Price, text="T2", xloc=xloc.bar_time, style=label.style_label_right, color=color.orange, textcolor=color.white, size=size.small)
 
 
 //=========================================================
@@ -737,6 +761,9 @@ if setupSaved and levelsDrawn and not breakoutDone
                  style=line.style_solid,
                    extend=extend.none
                  )
+        
+        // Add M5 label for purple line
+        label.new(x=levelsStartTime, y=lockedConfirmPrice, text="M5", xloc=xloc.bar_time, style=label.style_label_right, color=color.purple, textcolor=color.white, size=size.small)
 
         breakoutDone := true
 
@@ -768,6 +795,9 @@ if setupSaved and levelsDrawn and not na(yellowConfirmTime) and not na(yellowCon
              style=line.style_solid,
                 extend=extend.none
              )
+        
+        // Add 1M label for yellow line
+        label.new(x=levelsStartTime, y=yellowConfirmPrice, text="1M", xloc=xloc.bar_time, style=label.style_label_right, color=color.rgb(255, 165, 0), textcolor=color.white, size=size.small)
 
 plot(entryPrice, title="Entry", color=color.blue, display=display.price_scale)
 plot(lockedConfirmPrice, title="Purple", color=color.purple, display=display.price_scale)
