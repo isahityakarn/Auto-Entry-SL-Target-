@@ -623,6 +623,38 @@ if setupSaved and levelsDrawn and not confirmTargetDrawn
 
 
 //=========================================================
+// EMA BREAK DETECTION (entry ke baad pehla EMA cross)
+//=========================================================
+
+emaValue = ta.ema(close, emaLength)
+
+var float emaCrossPrice  = na
+var bool  emaCrossDone   = false
+var bool  emaCrossAbove  = false
+var float emaPeakPrice   = na
+var float emaBreakPoints = na
+
+if setupSaved and levelsDrawn and not emaCrossDone and time >= setupEndTime and time <= checkWindowEnd and barstate.isconfirmed
+    if direction == Direction.BUY
+        if close > emaValue
+            emaCrossAbove := true
+            emaPeakPrice  := na(emaPeakPrice) ? high : math.max(emaPeakPrice, high)
+        if emaCrossAbove and close < emaValue
+            emaCrossPrice := close
+            emaCrossDone  := true
+    else
+        if close < emaValue
+            emaCrossAbove := true
+            emaPeakPrice  := na(emaPeakPrice) ? low : math.min(emaPeakPrice, low)
+        if emaCrossAbove and close > emaValue
+            emaCrossPrice := close
+            emaCrossDone  := true
+
+if not na(emaCrossPrice) and not na(entryPrice)
+    emaBreakPoints := math.abs(emaCrossPrice - entryPrice)
+
+
+//=========================================================
 // DASHBOARD TABLE
 //=========================================================
 
@@ -652,7 +684,7 @@ if barstate.islast and setupSaved and showDashboard
     color hdrBg = color.new(color.navy, 10)
 
     table dash = table.new(
-         position.top_right, 2, 9,
+         position.top_right, 2, 10,
          bgcolor      = color.new(color.black, 10),
          border_color = color.new(color.white, 50),
          border_width = 1,
@@ -679,10 +711,16 @@ if barstate.islast and setupSaved and showDashboard
     table.cell(dash, 0, 8, "Setup TF",         text_color=color.white, text_size=size.small,  bgcolor=rowBg)
     table.cell(dash, 1, 8, setupTf + "M",      text_color=color.white, text_size=size.small,  bgcolor=rowBg, text_halign=text.align_center)
 
+    // Row 9 — Entry to EMA Break Points
+    bool   isNG2        = str.contains(syminfo.ticker, "NATURALGAS") or str.contains(syminfo.ticker, "NG")
+    string emaBreakStr  = na(emaBreakPoints) ? "Pending" : (isNG2 ? str.tostring(emaBreakPoints * 100, "#.##") : str.tostring(emaBreakPoints, "#.##")) + " pts"
+    color  emaBreakBg   = na(emaBreakPoints) ? color.new(color.gray, 60) : color.new(color.teal, 30)
+    table.cell(dash, 0, 9, "Entry→EMA Break",  text_color=color.white, text_size=size.small,  bgcolor=rowBg)
+    table.cell(dash, 1, 9, emaBreakStr,         text_color=color.white, text_size=size.small,  bgcolor=emaBreakBg, text_halign=text.align_center)
+
 
 //=========================================================
-// EMA - STEP LINE
+// EMA PLOT
 //=========================================================
 
-emaValue = ta.ema(close, emaLength)
 plot(emaValue, title="EMA", color=showEma ? color.blue : na, linewidth=2, style=plot.style_stepline)
