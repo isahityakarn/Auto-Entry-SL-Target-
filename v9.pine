@@ -21,9 +21,6 @@ setupDate = input.time(
     "Setup Date"
     )
 
-// ─── Dashboard Settings ───────────────────────────────
-showDashboard = input.bool(true, "Show Dashboard", group="Dashboard")
-
 // ─── EMA Settings ─────────────────────────────────────
 showEma   = input.bool(true, "Show EMA",   group="EMA")
 emaLength = input.int(10,   "EMA Length", minval=1, group="EMA")
@@ -169,7 +166,7 @@ if setupSaved and not levelsDrawn
     bool isNaturalGas = str.contains(syminfo.ticker, "NATURALGAS") or str.contains(syminfo.ticker, "NG")
     string rangeText  = isNaturalGas ? str.tostring(candleRange * 100, "#.##") : str.tostring(candleRange, "#.##")
     label.new(x=levelsStartBar + 10, y=slPrice, text=rangeText, xloc=xloc.bar_index,
-         style=label.style_label_right, color=color.red, textcolor=color.white, size=size.small)
+         style=label.style_label_right, color=color.red, textcolor=color.white, size=size.normal)
 
     target1Line := line.new(x1=levelsStartTime, y1=targetPrice, x2=levelsLineEndTime, y2=targetPrice,
          xloc=xloc.bar_time, color=color.green, width=1, style=line.style_dotted, extend=extend.none)
@@ -232,7 +229,7 @@ if setupSaved and levelsDrawn
             if na(slLabel)
                 slLabel := label.new(x=levelsStartTime, y=slPrice, text="SL",
                      xloc=xloc.bar_time, style=label.style_label_right,
-                     color=color.red, textcolor=color.white, size=size.small)
+                     color=color.red, textcolor=color.white, size=size.normal)
 
     if direction == Direction.BUY
 
@@ -684,72 +681,7 @@ if not na(emaCrossPrice) and not na(entryPrice)
 
 
 //=========================================================
-// DASHBOARD TABLE
-//=========================================================
-
-if barstate.islast and setupSaved and showDashboard
-
-    bool isNG = str.contains(syminfo.ticker, "NATURALGAS") or str.contains(syminfo.ticker, "NG")
-
-    string setupDateStr = str.format("{0,date,dd-MMM-yyyy}", setupDate)
-    string dirText      = direction == Direction.BUY ? "BUY" : "SELL"
-    string entryStr     = isNG ? str.tostring(entryPrice,   "#.####") : str.tostring(entryPrice,   "#.##")
-    string slStr        = isNG ? str.tostring(slPrice,      "#.####") : str.tostring(slPrice,      "#.##")
-    string t1Str        = isNG ? str.tostring(targetPrice,  "#.####") : str.tostring(targetPrice,  "#.##")
-    string t2Str        = isNG ? str.tostring(target2Price, "#.####") : str.tostring(target2Price, "#.##")
-    string rangeStr     = isNG ? str.tostring(candleRange * 100, "#.##") + " pts" : str.tostring(candleRange, "#.##") + " pts"
-
-    string t1Status = target1Touched ? "HIT"  : "Pending"
-    string t2Status = target2Touched ? "HIT"  : "Pending"
-    string slStatus = slBroken       ? "HIT"  : "Pending"
-    color  t1Bg     = target1Touched ? color.new(color.green,  30) : color.new(color.gray, 60)
-    color  t2Bg     = target2Touched ? color.new(color.orange, 30) : color.new(color.gray, 60)
-    color  slBg     = slBroken       ? color.new(color.red,    30) : color.new(color.gray, 60)
-
-    string resultText = slBroken ? "SL Hit" : target2Touched ? "T2 Hit!" : target1Touched ? "T1 Hit" : "In Play"
-    color  resultBg   = slBroken ? color.new(color.red, 50) : target2Touched ? color.new(color.orange, 50) : target1Touched ? color.new(color.green, 50) : color.new(color.gray, 60)
-
-    color rowBg = color.new(color.black, 30)
-    color hdrBg = color.new(color.navy, 10)
-
-    table dash = table.new(
-         position.top_right, 2, 10,
-         bgcolor      = color.new(color.black, 10),
-         border_color = color.new(color.white, 50),
-         border_width = 1,
-         frame_color  = color.new(color.white, 30),
-         frame_width  = 2
-         )
-
-    table.cell(dash, 0, 0, "TRADE DASHBOARD", text_color=color.white, text_size=size.normal, bgcolor=hdrBg, text_halign=text.align_center)
-    table.cell(dash, 1, 0, setupDateStr,       text_color=color.white, text_size=size.normal, bgcolor=hdrBg, text_halign=text.align_center)
-    table.cell(dash, 0, 1, "Direction",        text_color=color.white, text_size=size.small,  bgcolor=rowBg)
-    table.cell(dash, 1, 1, dirText,            text_color=color.white, text_size=size.small,  bgcolor=rowBg, text_halign=text.align_center)
-    table.cell(dash, 0, 2, "Entry",            text_color=color.white, text_size=size.small,  bgcolor=rowBg)
-    table.cell(dash, 1, 2, entryStr,           text_color=color.white, text_size=size.small,  bgcolor=rowBg, text_halign=text.align_center)
-    table.cell(dash, 0, 3, "Range (SL)",       text_color=color.white, text_size=size.small,  bgcolor=rowBg)
-    table.cell(dash, 1, 3, rangeStr,           text_color=color.white, text_size=size.small,  bgcolor=rowBg, text_halign=text.align_center)
-    table.cell(dash, 0, 4, "SL @ " + slStr,   text_color=color.white, text_size=size.small,  bgcolor=rowBg)
-    table.cell(dash, 1, 4, slStatus,           text_color=color.white, text_size=size.small,  bgcolor=slBg,  text_halign=text.align_center)
-    table.cell(dash, 0, 5, "T1 @ " + t1Str,   text_color=color.white, text_size=size.small,  bgcolor=rowBg)
-    table.cell(dash, 1, 5, t1Status,           text_color=color.white, text_size=size.small,  bgcolor=t1Bg,  text_halign=text.align_center)
-    table.cell(dash, 0, 6, "T2 @ " + t2Str,   text_color=color.white, text_size=size.small,  bgcolor=rowBg)
-    table.cell(dash, 1, 6, t2Status,           text_color=color.white, text_size=size.small,  bgcolor=t2Bg,  text_halign=text.align_center)
-    table.cell(dash, 0, 7, "Result",           text_color=color.white, text_size=size.small,  bgcolor=rowBg)
-    table.cell(dash, 1, 7, resultText,         text_color=color.white, text_size=size.small,  bgcolor=resultBg, text_halign=text.align_center)
-    table.cell(dash, 0, 8, "Setup TF",         text_color=color.white, text_size=size.small,  bgcolor=rowBg)
-    table.cell(dash, 1, 8, setupTf + "M",      text_color=color.white, text_size=size.small,  bgcolor=rowBg, text_halign=text.align_center)
-
-    // Row 9 — Entry to EMA Break Points
-    bool   isNG2        = str.contains(syminfo.ticker, "NATURALGAS") or str.contains(syminfo.ticker, "NG")
-    string emaBreakStr  = na(emaBreakPoints) ? "Pending" : (isNG2 ? str.tostring(emaBreakPoints * 100, "#.##") : str.tostring(emaBreakPoints, "#.##")) + " pts"
-    color  emaBreakBg   = na(emaBreakPoints) ? color.new(color.gray, 60) : color.new(color.teal, 30)
-    table.cell(dash, 0, 9, "Entry→EMA Break",  text_color=color.white, text_size=size.small,  bgcolor=rowBg)
-    table.cell(dash, 1, 9, emaBreakStr,         text_color=color.white, text_size=size.small,  bgcolor=emaBreakBg, text_halign=text.align_center)
-
-
-//=========================================================
 // EMA PLOT
 //=========================================================
 
-plot(emaValue, title="EMA", color=showEma ? color.blue : na, linewidth=2, style=plot.style_stepline)
+plot(emaValue, title="EMA", color=showEma ? color.blue : na, linewidth=1, style=plot.style_stepline)
